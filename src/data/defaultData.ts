@@ -2,7 +2,7 @@ import { InitialDataStore } from '../types';
 
 export const defaultWeddingData: InitialDataStore = {
   wedding: {
-    coupleNames: "Angel Sevilla & Krister Munguia",
+    coupleNames: "Angel Sevilla & Krister Chavez",
     partner1Name: "Angel Sevilla",
     partner2Name: "Krister Munguia",
     weddingDate: "2026-11-14T17:00:00",

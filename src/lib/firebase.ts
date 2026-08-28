@@ -27,9 +27,8 @@ import firebaseConfig from '../../firebase-applet-config.json';
 // Initialize Firebase with the provisioned Applet configuration
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-export const db = firebaseConfig.firestoreDatabaseId
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-  : getFirestore(app);
+// Uses the default Firestore database for this project.
+export const db = getFirestore(app);
 
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();

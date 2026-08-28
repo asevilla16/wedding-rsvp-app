@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .font-serif {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+  }
+  .font-script {
+    font-family: 'Parisienne', cursive;
+  }
+  .font-sans {
+    font-family: 'Jost', sans-serif;
+  }
+
+  .perspective-1000 {
+    perspective: 1000px;
+  }
+
+  .gold-foil-border {
+    border-color: #D4AF37;
+    box-shadow: 0 0 15px rgba(212, 175, 55, 0.25);
+  }
+
+  .emerald-marble-bg {
+    background: radial-gradient(circle at 50% 0%, #08402c 0%, #04281c 60%, #01140e 100%);
+  }
+
+  .mesh-gradient {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: 
+      radial-gradient(at 10% 0%, rgba(15, 76, 58, 0.22) 0px, transparent 60%),
+      radial-gradient(at 90% 10%, rgba(212, 175, 55, 0.18) 0px, transparent 50%),
+      radial-gradient(at 50% 50%, rgba(15, 76, 58, 0.12) 0px, transparent 60%),
+      radial-gradient(at 0% 100%, rgba(4, 40, 28, 0.20) 0px, transparent 60%),
+      radial-gradient(at 100% 100%, rgba(212, 175, 55, 0.15) 0px, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .emerald-card-border {
+    border: 1.5px solid #0F4C3A;
+    box-shadow: 0 0 0 1px #D4AF37;
+  }
+}
+
+body {
+  background-color: #FAF9F5;
+  color: #2A2A2A;
+  font-family: 'Jost', sans-serif;
+}
+
+/* Custom scrollbar for gallery track */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+

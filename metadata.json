@@ -1,0 +1,6 @@
+{
+  "name": "Boda de Angel Sevilla & Krister Munguia",
+  "description": "Portal de confirmación de asistencia (RSVP) e información del evento para la boda de Angel Sevilla & Krister Munguia.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

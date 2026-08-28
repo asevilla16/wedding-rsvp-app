@@ -1,0 +1,53 @@
+{
+  "entities": {
+    "wedding": {
+      "title": "Wedding Details",
+      "description": "Wedding configuration, couple info, schedule, meals, and settings",
+      "type": "object",
+      "properties": {
+        "coupleNames": { "type": "string" },
+        "weddingDate": { "type": "string" },
+        "weddingLocation": { "type": "string" },
+        "venueAddress": { "type": "string" }
+      },
+      "required": ["coupleNames", "weddingDate"]
+    },
+    "guest": {
+      "title": "Guest Entry",
+      "description": "Guest RSVP and invitation status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "primaryName": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "code", "primaryName"]
+    },
+    "wish": {
+      "title": "Guestbook Wish",
+      "description": "Wishes and congratulations from guests",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "guestName": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "required": ["id", "guestName", "message"]
+    }
+  },
+  "firestore": {
+    "/wedding/{docId}": {
+      "schema": "wedding",
+      "description": "Stores wedding configuration and details"
+    },
+    "/guests/{guestId}": {
+      "schema": "guest",
+      "description": "Stores guest list and RSVP responses"
+    },
+    "/wishes/{wishId}": {
+      "schema": "wish",
+      "description": "Stores guestbook entries"
+    }
+  }
+}

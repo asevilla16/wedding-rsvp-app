@@ -1,0 +1,197 @@
+{
+  "wedding": {
+    "coupleNames": "Angel Sevilla & Krister Munguia",
+    "partner1Name": "Angel Sevilla",
+    "partner2Name": "Krister Munguia",
+    "weddingDate": "2026-11-14T17:00:00",
+    "weddingLocation": "Angeli Gardens, San Pedro Sula",
+    "venueAddress": "Angeli Gardens, Col. Las Mesetas, San Pedro Sula, Honduras",
+    "venueMapUrl": "https://maps.app.goo.gl/cfh3eQzKUS3Mp25i7",
+    "heroSubtitle": "Con todo nuestro cariño, queremos que nos acompañes a celebrar el día en que unamos nuestras vidas.",
+    "coverImageUrl": "https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=1600&q=80",
+    "ourStory": "Dos personas, una misma sonrisa. Con mucha ilusión en el corazón, queremos invitarte a acompañarnos en el día en que unamos nuestras vidas. Tu presencia, tu cariño y tus buenos deseos harán de esta celebración un recuerdo aún más hermoso.",
+    "rsvpDeadline": "2026-10-01",
+    "adminPin": "1234",
+    "allowPlusOnes": true,
+    "mealSelectionEnabled": true,
+    "songRequestsEnabled": true,
+    "registryEnabled": true,
+    "guestbookEnabled": true,
+    "schedule": [
+      {
+        "id": "sch_1",
+        "title": "Bienvenida & Cóctel de Honor",
+        "time": "17:00 HRS",
+        "location": "Jardín Central, Angeli Gardens",
+        "description": "Recepción de invitados con vino espumoso, cócteles de autor y canapés artesanales.",
+        "iconName": "GlassWater",
+        "dressCode": "Etiqueta / Traje Oscuro"
+      },
+      {
+        "id": "sch_2",
+        "title": "Ceremonia Simbólica",
+        "time": "18:00 HRS",
+        "location": "El Cenador de Olivos",
+        "description": "Acompáñanos mientras intercambiamos nuestros votos rodeados de nuestras familias y seres queridos.",
+        "iconName": "Heart",
+        "dressCode": "Etiqueta"
+      },
+      {
+        "id": "sch_3",
+        "title": "Banquete de Bodas",
+        "time": "19:30 HRS",
+        "location": "Gran Salón Esmeralda",
+        "description": "Cena gourmet de tres tiempos maridada con vinos seleccionados, seguida de brindis y emotivos discursos.",
+        "iconName": "Utensils",
+        "dressCode": "Etiqueta"
+      },
+      {
+        "id": "sch_4",
+        "title": "Primer Baile & Gran Fiesta",
+        "time": "21:00 HRS - 03:00 HRS",
+        "location": "Pista Principal",
+        "description": "¡Ponte cómodo y prepárate para bailar toda la noche con DJ en vivo y sorpresas especiales!",
+        "iconName": "Music",
+        "dressCode": "Fiesta y Elegancia"
+      }
+    ],
+    "meals": [
+      {
+        "id": "meal_beef",
+        "name": "Filete Mignon en Reducción de Vino Tinto",
+        "description": "Acompañado de puré de papa al ajo rostizado y espárragos a la parrilla con mantequilla de hierbas.",
+        "category": "meat",
+        "isGlutenFree": true
+      },
+      {
+        "id": "meal_fish",
+        "name": "Salmón Noruego a las Finas Hierbas",
+        "description": "Servido con crema suave de eneldo, vegetales glaseados y risotto silvestre.",
+        "category": "fish",
+        "isGlutenFree": true
+      },
+      {
+        "id": "meal_veg",
+        "name": "Risotto de Champignones Silvestres & Trufa",
+        "description": "Arroz arborio infusionado con aceite de trufa negra, crujiente de parmesano y piñones tostados.",
+        "category": "vegetarian",
+        "isGlutenFree": true
+      },
+      {
+        "id": "meal_kids",
+        "name": "Menú Infantil Gourmet",
+        "description": "Pechuga de pollo empanizada artesanal con papas a la francesa y copa de fruta fresca.",
+        "category": "kids",
+        "isGlutenFree": false
+      }
+    ],
+    "accommodations": [],
+    "faqs": [
+      {
+        "id": "faq_1",
+        "question": "¿Cuál es la fecha límite para confirmar asistencia?",
+        "answer": "Por favor confirma tu asistencia antes del 1 de Octubre de 2026 para coordinar banquetes y logística con el recinto.",
+        "category": "general"
+      },
+      {
+        "id": "faq_2",
+        "question": "¿Cuál es el código de vestimenta?",
+        "answer": "El código de vestimenta es Etiqueta / Formal. Traje oscuro o esmoquin para caballeros, vestido largo o midi elegante para damas. Pedimos con cariño evitar el blanco e ivory, reservados para los novios.",
+        "category": "dress-code"
+      },
+      {
+        "id": "faq_3",
+        "question": "¿Puedo llevar acompañante o niños?",
+        "answer": "Debido al cupo limitado del jardín, la invitación está asignada específicamente para los nombres registrados. Al ingresar tu nombre en el buscador de RSVP aparecerá la cantidad de pases asignados.",
+        "category": "general"
+      },
+      {
+        "id": "faq_4",
+        "question": "¿Habrá estacionamiento o servicio de Valet?",
+        "answer": "Sí, contamos con servicio de estacionamiento privado para todos nuestros invitados.",
+        "category": "travel"
+      }
+    ],
+    "registry": []
+  },
+  "guests": [
+    {
+      "id": "gst_1",
+      "code": "ANGEL-101",
+      "primaryName": "Elena Rostova",
+      "email": "elena.rostova@example.com",
+      "phone": "(55) 5555-0192",
+      "partySizeAllowed": 2,
+      "status": "attending",
+      "attendingEvents": [
+        "sch_1",
+        "sch_2",
+        "sch_3",
+        "sch_4"
+      ],
+      "primaryMealOptionId": "meal_beef",
+      "primaryDietaryRestrictions": "Sin gluten",
+      "plusOne": {
+        "attending": true,
+        "fullName": "Dmitri Rostova",
+        "mealOptionId": "meal_fish",
+        "dietaryRestrictions": "Ninguna"
+      },
+      "songRequest": {
+        "title": "At Last",
+        "artist": "Etta James"
+      },
+      "messageToCouple": "¡Estamos inmensamente felices por ustedes! Nos vemos en Angeli Gardens para brindar juntos.",
+      "updatedAt": "2026-07-12T14:30:00Z",
+      "tableNumber": "Mesa 4"
+    },
+    {
+      "id": "gst_2",
+      "code": "KRISTER-102",
+      "primaryName": "Marcus Vance",
+      "email": "marcus.vance@example.com",
+      "phone": "(55) 5555-8831",
+      "partySizeAllowed": 2,
+      "status": "attending",
+      "attendingEvents": [
+        "sch_1",
+        "sch_2",
+        "sch_3",
+        "sch_4"
+      ],
+      "primaryMealOptionId": "meal_veg",
+      "primaryDietaryRestrictions": "Vegetariano",
+      "plusOne": {
+        "attending": true,
+        "fullName": "Sarah Vance",
+        "mealOptionId": "meal_veg",
+        "dietaryRestrictions": "Vegetariana"
+      },
+      "songRequest": {
+        "title": "September",
+        "artist": "Earth, Wind & Fire"
+      },
+      "messageToCouple": "¡Muchas felicidades Angel y Krister! ¡Listos para la pista de baile!",
+      "updatedAt": "2026-07-14T10:15:00Z",
+      "tableNumber": "Mesa 2"
+    }
+  ],
+  "wishes": [
+    {
+      "id": "wsh_1",
+      "guestName": "Elena & Dmitri",
+      "message": "¡Brindamos por una vida llena de amor, sonrisas y grandes aventuras juntos! Un honor acompañarlos.",
+      "date": "12 de Julio, 2026",
+      "isPublic": true,
+      "likesCount": 5
+    },
+    {
+      "id": "wsh_2",
+      "guestName": "Familia Munguia",
+      "message": "¡Angel y Krister, les deseamos una eternidad llena de felicidad y complicidad!",
+      "date": "14 de Julio, 2026",
+      "isPublic": true,
+      "likesCount": 8
+    }
+  ]
+}

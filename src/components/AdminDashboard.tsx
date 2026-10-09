@@ -275,7 +275,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setPinError(
         `Autenticación con Google no disponible (${errorDetail || 'Restricción de Firebase/Navegador'}).\n\n💡 Hemos preparado el PIN "1234" para que ingreses directamente.`
       );
-      setPinInput(wedding.adminPin || '1234');
+      setPinInput(wedding.adminPin);
       setShowPinFallback(true);
     } finally {
       setAuthLoading(false);
@@ -839,7 +839,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           setPinInput(e.target.value);
                           if (pinError) setPinError('');
                         }}
-                        placeholder="Ingresa PIN (ej. 1234)"
+                        placeholder="Ingresa PIN"
                         className="w-full text-center tracking-[0.3em] text-lg py-3.5 px-10 bg-white border border-[#E5CFA3] focus:outline-none focus:ring-2 focus:ring-[#0F4C3A] focus:border-transparent rounded-2xl text-[#0F4C3A] placeholder-[#2A2A2A]/40 font-semibold shadow-inner"
                         autoFocus
                       />
@@ -852,19 +852,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPinInput('1234');
-                        setPinError('');
-                      }}
-                      className="text-[11px] text-[#0F4C3A] hover:underline font-medium cursor-pointer"
-                    >
-                      ⚡ Auto-completar PIN 
-                    </button>
                   </div>
 
                   {pinError && (
@@ -1150,7 +1137,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             )}
 
             {/* RIGHT MAIN WORKSPACE */}
-            <main className="flex-1 flex flex-col bg-[#F7F3EC] overflow-hidden">
+            <main className="flex-1 min-w-0 flex flex-col bg-[#F7F3EC] overflow-hidden">
               {/* Header */}
               <header className="h-16 bg-white/90 border-b border-[#E5CFA3] px-4 sm:px-6 flex items-center justify-between shrink-0 shadow-2xs">
                 <div className="flex items-center space-x-3">
@@ -1469,8 +1456,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
 
                   {/* Guests Table */}
-                  <div className="rounded-[24px] bg-white border border-[#E5CFA3] overflow-hidden shadow-xs">
-                    <table className="w-full text-left text-xs text-[#2A2A2A]">
+                  <div className="rounded-[24px] bg-white border border-[#E5CFA3] overflow-x-auto shadow-xs">
+                    <table className="w-full min-w-[960px] text-left text-xs text-[#2A2A2A]">
                       <thead className="bg-[#F7F3EC] border-b border-[#E5CFA3] text-[10px] font-medium uppercase tracking-widest text-[#B98A2E]">
                         <tr>
                           <th className="p-3.5">Nombre Invitado</th>
@@ -1825,8 +1812,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </div>
 
                     {/* Table */}
-                    <div className="rounded-[24px] bg-white border border-[#E5CFA3] overflow-hidden shadow-xs">
-                      <table className="w-full text-left text-xs text-[#2A2A2A]">
+                    <div className="rounded-[24px] bg-white border border-[#E5CFA3] overflow-x-auto shadow-xs">
+                      <table className="w-full min-w-[860px] text-left text-xs text-[#2A2A2A]">
                         <thead className="bg-[#F7F3EC] border-b border-[#E5CFA3] text-[10px] font-medium uppercase tracking-widest text-[#B98A2E]">
                           <tr>
                             <th className="p-3.5">Categoría</th>
@@ -2217,7 +2204,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </div>
                     ) : (
                       <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs text-[#2A2A2A]">
+                        <table className="w-full min-w-[560px] text-left text-xs text-[#2A2A2A]">
                           <thead className="bg-[#F7F3EC] border-b border-[#E5CFA3] text-[10px] text-[#B98A2E] font-medium uppercase tracking-widest">
                             <tr>
                               <th className="p-3">Nombre Invitado</th>

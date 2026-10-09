@@ -27,8 +27,8 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'rsvp', label: 'RSVP', icon: Heart, action: onOpenRsvp, highlight: true },
     { id: 'schedule', label: 'Itinerario', icon: Calendar },
     { id: 'venue', label: 'Ubicación', icon: MapPin },
-    { id: 'menu', label: 'Menú', icon: Utensils },
-    { id: 'gallery', label: 'Galería', icon: Camera },
+    // { id: 'menu', label: 'Menú', icon: Utensils },
+    // { id: 'gallery', label: 'Galería', icon: Camera },
     { id: 'faqs', label: 'Preguntas', icon: HelpCircle },
     { id: 'guestbook', label: 'Libro de Visitas', icon: MessageSquareCode },
   ];
@@ -128,14 +128,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button> */}
 
           {/* Admin Toggle */}
-          <button
+          {/* <button
             onClick={onOpenAdmin}
             className="px-3 py-1.5 rounded-full bg-white/70 hover:bg-white backdrop-blur-md border border-[#E5CFA3] text-[#0F4C3A] text-xs font-medium uppercase tracking-wider flex items-center space-x-1.5 transition-all cursor-pointer shadow-xs"
             title="Panel de Gestión para los Novios (Angel & Krister)"
           >
             <ShieldCheck className="w-4 h-4 text-[#B98A2E]" />
             <span className="hidden md:inline font-semibold text-[11px]">Panel Novios</span>
-          </button>
+          </button> */}
 
           {/* Mobile Menu Trigger */}
           <button

@@ -176,14 +176,14 @@ export default function App() {
         </motion.div> */}
 
         {/* 6. Photo Gallery */}
-        <motion.div
+        {/* <motion.div
           initial={{ opacity: 0, y: 35 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: '-60px' }}
           transition={{ duration: 0.8, ease: 'easeOut' }}
         >
           <GallerySection photos={wedding.galleryPhotos} />
-        </motion.div>
+        </motion.div> */}
 
         {/* 7. FAQs */}
         <motion.div

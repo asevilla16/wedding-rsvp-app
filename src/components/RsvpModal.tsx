@@ -577,6 +577,21 @@ export const RsvpModal: React.FC<RsvpModalProps> = ({ wedding, isOpen, initialCo
                 </div>
               )}
 
+              {/* Adults-only notice */}
+              <div className="p-4 rounded-2xl bg-[#F7F3EC] border border-[#E5CFA3] flex items-start space-x-3">
+                <Heart className="w-4 h-4 text-[#B98A2E] shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <span className="text-[10px] uppercase tracking-widest font-semibold text-[#0F4C3A] block">
+                    Celebración Solo para Adultos
+                  </span>
+                  <p className="text-xs text-[#2A2A2A]/80 font-light font-sans leading-relaxed">
+                    Con todo cariño, les compartimos que hemos planeado nuestra boda como una celebración solo para adultos.
+                    Agradecemos de corazón su comprensión y esperamos que esta noche sea una oportunidad para relajarse y
+                    disfrutar con nosotros.
+                  </p>
+                </div>
+              </div>
+
               {/* Message / Wishes */}
               <div>
                 <label className="block text-[10px] uppercase tracking-widest font-medium text-[#B98A2E] mb-1">

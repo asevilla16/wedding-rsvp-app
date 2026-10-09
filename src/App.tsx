@@ -26,10 +26,26 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState('hero');
   const [rsvpModalOpen, setRsvpModalOpen] = useState(false);
-  const [adminModalOpen, setAdminModalOpen] = useState(false);
   const [aiConciergeModalOpen, setAiConciergeModalOpen] = useState(false);
   const [showEnvelope, setShowEnvelope] = useState(true);
   const [initialCode, setInitialCode] = useState<string | null>(null);
+
+  // Minimal client-side routing (no router dependency).
+  const [route, setRoute] = useState(() => window.location.pathname);
+  const navigate = (to: string) => {
+    if (to !== window.location.pathname) {
+      window.history.pushState({}, '', to);
+    }
+    setRoute(to);
+    window.scrollTo({ top: 0 });
+  };
+  const isCouplePanel = route.replace(/\/+$/, '') === '/panel';
+
+  useEffect(() => {
+    const onPopState = () => setRoute(window.location.pathname);
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   useEffect(() => {
     loadWeddingData();
@@ -59,6 +75,21 @@ export default function App() {
     }
   };
 
+  // Couple's management panel lives at its own route (/panel) instead of a modal.
+  if (isCouplePanel) {
+    return (
+      <AdminDashboard
+        asPage
+        wedding={wedding}
+        wishes={wishes}
+        isOpen={true}
+        onClose={() => navigate('/')}
+        onWeddingUpdated={(updated) => setWedding(updated)}
+        onWishesUpdated={(updatedWishes) => setWishes(updatedWishes)}
+      />
+    );
+  }
+
   return (
     <div className="relative min-h-screen bg-[#fdfcfb] text-gray-800 font-sans selection:bg-emerald-200 selection:text-emerald-900 overflow-x-hidden">
       {/* Background Mesh Gradient */}
@@ -69,7 +100,7 @@ export default function App() {
         coupleNames={wedding.coupleNames}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        onOpenAdmin={() => setAdminModalOpen(true)}
+        onOpenAdmin={() => navigate('/panel')}
         onOpenRsvp={() => setRsvpModalOpen(true)}
         onOpenAiConcierge={() => setAiConciergeModalOpen(true)}
         onOpenEnvelope={() => setShowEnvelope(true)}
@@ -135,14 +166,14 @@ export default function App() {
         </motion.div>
 
         {/* 5. Menu */}
-        <motion.div
+        {/* <motion.div
           initial={{ opacity: 0, y: 35 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: '-60px' }}
           transition={{ duration: 0.8, ease: 'easeOut' }}
         >
           <MenuSection meals={wedding.meals} onOpenRsvp={() => setRsvpModalOpen(true)} />
-        </motion.div>
+        </motion.div> */}
 
         {/* 6. Photo Gallery */}
         <motion.div
@@ -209,16 +240,16 @@ export default function App() {
             >
               Confirmar Asistencia
             </button>
-            <span>•</span>
+            {/* <span>•</span>
             <button
               onClick={() => setAiConciergeModalOpen(true)}
               className="hover:text-[#B98A2E] underline cursor-pointer font-medium"
             >
               Asistente Virtual
-            </button>
+            </button> */}
             <span>•</span>
             <button
-              onClick={() => setAdminModalOpen(true)}
+              onClick={() => navigate('/panel')}
               className="hover:text-[#B98A2E] underline cursor-pointer font-medium"
             >
               Acceso para Novios
@@ -247,16 +278,6 @@ export default function App() {
         initialCode={initialCode}
         onClose={() => setRsvpModalOpen(false)}
         onRsvpSuccess={loadWeddingData}
-      />
-
-      {/* Host Admin Dashboard */}
-      <AdminDashboard
-        wedding={wedding}
-        wishes={wishes}
-        isOpen={adminModalOpen}
-        onClose={() => setAdminModalOpen(false)}
-        onWeddingUpdated={(updated) => setWedding(updated)}
-        onWishesUpdated={(updatedWishes) => setWishes(updatedWishes)}
       />
 
       {/* AI Concierge Modal */}

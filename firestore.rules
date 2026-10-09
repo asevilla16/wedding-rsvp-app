@@ -25,5 +25,11 @@ service cloud.firestore {
       allow read: if true;
       allow write: if true;
     }
+
+    // Budget & expense line items (couple's panel)
+    match /budget/{itemId} {
+      allow read: if true;
+      allow write: if true;
+    }
   }
 }

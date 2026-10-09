@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ShieldCheck,
   Users,
@@ -65,73 +65,14 @@ import {
   postGuestbookWish,
   saveGalleryPhoto,
   deleteGalleryPhoto,
+  fetchBudgetItems,
+  saveBudgetItem,
+  deleteBudgetItem,
 } from '../services/api';
+import { defaultBudgetItems } from '../data/defaultData';
 import { GuestQrModal } from './GuestQrModal';
 import { auth, loginWithGoogle, logoutUser } from '../lib/firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
-
-const defaultBudgetItems: BudgetItem[] = [
-  {
-    id: 'b-1',
-    category: 'Lugar & Banquetes',
-    description: 'Banquete de Bodas (3 tiempos para 120 personas)',
-    vendor: 'Angeli Gardens Catering',
-    estimatedCost: 3500,
-    actualCost: 3600,
-    paidAmount: 2000,
-    isPaid: false,
-    notes: 'Primer abono realizado en Mayo. Saldo pendiente 15 días antes.',
-    dueDate: '2026-10-15',
-  },
-  {
-    id: 'b-2',
-    category: 'Fotografía & Video',
-    description: 'Cobertura completa 8 hrs + Sesión de novios + Video Drone',
-    vendor: 'Studio Memory Films',
-    estimatedCost: 1800,
-    actualCost: 1750,
-    paidAmount: 1750,
-    isPaid: true,
-    notes: 'Pagado en su totalidad con descuento por pronto pago.',
-    dueDate: '2026-08-01',
-  },
-  {
-    id: 'b-3',
-    category: 'Música & DJ',
-    description: 'DJ En Vivo, Pista de baile LED e Iluminación Robótica',
-    vendor: 'ProAudio Eventos',
-    estimatedCost: 1200,
-    actualCost: 1200,
-    paidAmount: 600,
-    isPaid: false,
-    notes: '50% anticipo pagado. Saldo el día del evento.',
-    dueDate: '2026-11-14',
-  },
-  {
-    id: 'b-4',
-    category: 'Decoración & Flores',
-    description: 'Diseño floral cenador, centros de mesa y ramo de novia',
-    vendor: 'Botanica Floral Design',
-    estimatedCost: 1500,
-    actualCost: 1600,
-    paidAmount: 800,
-    isPaid: false,
-    notes: 'Incluye arcos florales para la ceremonia.',
-    dueDate: '2026-10-30',
-  },
-  {
-    id: 'b-5',
-    category: 'Vestuario & Belleza',
-    description: 'Vestido de novia, Maquillaje profesional y Peinado',
-    vendor: 'Bridal Atelier & Salon',
-    estimatedCost: 2000,
-    actualCost: 2100,
-    paidAmount: 2100,
-    isPaid: true,
-    notes: 'Prueba de maquillaje completada.',
-    dueDate: '2026-09-10',
-  },
-];
 
 interface AdminDashboardProps {
   wedding: WeddingDetails;
@@ -140,6 +81,8 @@ interface AdminDashboardProps {
   onClose: () => void;
   onWeddingUpdated: (updatedWedding: WeddingDetails) => void;
   onWishesUpdated?: (updatedWishes: GuestbookWish[]) => void;
+  /** Render as a full standalone page (own route) instead of a floating modal. */
+  asPage?: boolean;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -149,13 +92,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onClose,
   onWeddingUpdated,
   onWishesUpdated,
+  asPage = false,
 }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
   const [showPinFallback, setShowPinFallback] = useState(false);
 
   const [pinInput, setPinInput] = useState('');
-  const [isUnlocked, setIsUnlocked] = useState(false);
+  // Once the couple has unlocked the panel, keep them in for the rest of the
+  // browser session — a data save, a hot reload or a stray re-render must never
+  // bounce them back to the sign-in screen.
+  const [isUnlocked, setIsUnlocked] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem('panel_unlocked') === '1';
+    } catch {
+      return false;
+    }
+  });
   const [pinError, setPinError] = useState('');
   const [showPin, setShowPin] = useState(false);
 
@@ -170,27 +123,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [copiedGuestId, setCopiedGuestId] = useState<string | null>(null);
   const [selectedQrGuest, setSelectedQrGuest] = useState<GuestEntry | null>(null);
 
-  // Budget management state
-  const [budgetItems, setBudgetItems] = useState<BudgetItem[]>(() => {
-    const saved = localStorage.getItem('wedding_budget_items');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        // fallback
-      }
-    }
-    return defaultBudgetItems;
-  });
+  // Budget management state — persisted in the Firestore `budget` collection
+  // (see src/services/api.ts), with the bundled defaults as an offline fallback.
+  const [budgetItems, setBudgetItems] = useState<BudgetItem[]>(defaultBudgetItems);
   const [budgetCategoryFilter, setBudgetCategoryFilter] = useState<string>('all');
   const [budgetStatusFilter, setBudgetStatusFilter] = useState<'all' | 'paid' | 'pending'>('all');
   const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
   const [editingBudgetItem, setEditingBudgetItem] = useState<Partial<BudgetItem> | null>(null);
 
-  // Save budget to localStorage whenever it changes
-  useEffect(() => {
-    localStorage.setItem('wedding_budget_items', JSON.stringify(budgetItems));
-  }, [budgetItems]);
+  const loadBudgetData = async () => {
+    try {
+      setBudgetItems(await fetchBudgetItems());
+    } catch (err) {
+      console.error('Failed to load budget items:', err);
+    }
+  };
 
   // Photo management state
   const [photoModalOpen, setPhotoModalOpen] = useState(false);
@@ -232,6 +179,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setSettingsForm(wedding);
   }, [wedding]);
 
+  // Keep the latest values available to the auth listener via refs, so the
+  // listener does NOT need `wedding` / `isUnlocked` as effect dependencies.
+  // Otherwise every data save flows back as a new `wedding` prop, tears down and
+  // recreates this subscription, re-runs validateAndAuthorize, and bounces the
+  // user back to the sign-in screen.
+  const weddingRef = useRef(wedding);
+  const isUnlockedRef = useRef(isUnlocked);
+  useEffect(() => {
+    weddingRef.current = wedding;
+  }, [wedding]);
+  useEffect(() => {
+    isUnlockedRef.current = isUnlocked;
+    try {
+      if (isUnlocked) sessionStorage.setItem('panel_unlocked', '1');
+      else sessionStorage.removeItem('panel_unlocked');
+    } catch {
+      /* sessionStorage unavailable — in-memory state still holds for this mount */
+    }
+  }, [isUnlocked]);
+
   // Listen to Firebase auth state changes
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
@@ -241,7 +208,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }
     });
     return () => unsubscribe();
-  }, [isOpen, wedding]);
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -250,13 +217,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setPinError('');
     } else if (isOpen && isUnlocked) {
       loadGuestsData();
+      loadBudgetData();
     }
   }, [isOpen, isUnlocked]);
 
   const validateAndAuthorize = (firebaseUser: User) => {
+    const w = weddingRef.current;
     const email = (firebaseUser.email || '').toLowerCase().trim();
-    const p1 = (wedding.partner1Email || '').toLowerCase().trim();
-    const p2 = (wedding.partner2Email || '').toLowerCase().trim();
+    const p1 = (w.partner1Email || '').toLowerCase().trim();
+    const p2 = (w.partner2Email || '').toLowerCase().trim();
     const ownerEmail = 'maestroshifu049@gmail.com';
 
     // If no emails are configured in settings yet, or user matches p1, p2, or app owner
@@ -270,10 +239,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setIsUnlocked(true);
       setPinError('');
       loadGuestsData();
-    } else {
+    } else if (!isUnlockedRef.current) {
+      // Only block when the panel isn't already unlocked. A token refresh or a
+      // re-fired auth event must never eject someone mid-session.
       setIsUnlocked(false);
-      const partner1Label = wedding.partner1Name ? `${wedding.partner1Name} (${wedding.partner1Email || 'sin correo registrado'})` : 'Novio/a 1';
-      const partner2Label = wedding.partner2Name ? `${wedding.partner2Name} (${wedding.partner2Email || 'sin correo registrado'})` : 'Novio/a 2';
+      const partner1Label = w.partner1Name ? `${w.partner1Name} (${w.partner1Email || 'sin correo registrado'})` : 'Novio/a 1';
+      const partner2Label = w.partner2Name ? `${w.partner2Name} (${w.partner2Email || 'sin correo registrado'})` : 'Novio/a 2';
       setPinError(
         `La cuenta Google "${firebaseUser.email}" no está autorizada. Asegúrate de iniciar sesión con la cuenta de correo de los novios:\n• ${partner1Label}\n• ${partner2Label}`
       );
@@ -329,8 +300,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const data = await fetchAllGuests(pinInput || '1234');
       setGuests(data);
     } catch (err: any) {
-      console.error(err);
-      setIsUnlocked(false);
+      // A failure to load the guest list is not an auth failure — keep the
+      // couple in the panel and just surface the problem.
+      console.error('Failed to load guests:', err);
       setPinError('No se pudieron cargar los datos de los invitados.');
     } finally {
       setLoadingGuests(false);
@@ -407,6 +379,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       artist: g.songRequest!.artist,
     }));
 
+  // Group options: the built-in categories plus any custom group present on a
+  // guest (e.g. the seeded list's "Aurora", "USA", "La López").
+  const groupOptions = Array.from(
+    new Set([
+      'Familia Novia', 'Familia Novio', 'Amigos Novia', 'Amigos Novio', 'Trabajo', 'VIP', 'General',
+      ...guests.map((g) => g.groupCategory).filter((c): c is string => !!c),
+    ])
+  );
+
   // Filtering guests
   const filteredGuests = guests.filter((g) => {
     const matchesSearch =
@@ -436,67 +417,66 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return matchesCategory && matchesStatus;
   });
 
-  // Budget Items CRUD handlers
-  const handleSaveBudgetItem = (e: React.FormEvent) => {
+  // Budget Items CRUD handlers — persisted to the Firestore `budget` collection.
+  const handleSaveBudgetItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingBudgetItem || !editingBudgetItem.description) return;
 
-    if (editingBudgetItem.id) {
-      setBudgetItems((prev) =>
-        prev.map((item) =>
-          item.id === editingBudgetItem.id
-            ? ({
-                ...item,
-                ...editingBudgetItem,
-                category: editingBudgetItem.category || 'Otros',
-                estimatedCost: Number(editingBudgetItem.estimatedCost) || 0,
-                actualCost: Number(editingBudgetItem.actualCost) || 0,
-                paidAmount: Number(editingBudgetItem.paidAmount) || 0,
-                isPaid: (Number(editingBudgetItem.paidAmount) || 0) >= (Number(editingBudgetItem.actualCost) || 0),
-              } as BudgetItem)
-            : item
-        )
-      );
-    } else {
-      const newItem: BudgetItem = {
-        id: `b-${Date.now()}`,
-        category: (editingBudgetItem.category as any) || 'Otros',
-        description: editingBudgetItem.description,
-        vendor: editingBudgetItem.vendor || '',
-        estimatedCost: Number(editingBudgetItem.estimatedCost) || 0,
-        actualCost: Number(editingBudgetItem.actualCost) || 0,
-        paidAmount: Number(editingBudgetItem.paidAmount) || 0,
-        isPaid: (Number(editingBudgetItem.paidAmount) || 0) >= (Number(editingBudgetItem.actualCost) || 0),
-        notes: editingBudgetItem.notes || '',
-        dueDate: editingBudgetItem.dueDate || '',
-      };
-      setBudgetItems((prev) => [...prev, newItem]);
+    const existing = editingBudgetItem.id
+      ? budgetItems.find((item) => item.id === editingBudgetItem.id)
+      : undefined;
+    const estimatedCost = Number(editingBudgetItem.estimatedCost) || 0;
+    const actualCost = Number(editingBudgetItem.actualCost) || 0;
+    const paidAmount = Number(editingBudgetItem.paidAmount) || 0;
+
+    const item: BudgetItem = {
+      ...(existing || {}),
+      id: editingBudgetItem.id || `b-${Date.now()}`,
+      category: (editingBudgetItem.category as any) || 'Otros',
+      description: editingBudgetItem.description,
+      vendor: editingBudgetItem.vendor || '',
+      estimatedCost,
+      actualCost,
+      paidAmount,
+      isPaid: paidAmount >= actualCost,
+      notes: editingBudgetItem.notes || '',
+      dueDate: editingBudgetItem.dueDate || '',
+    };
+
+    try {
+      setBudgetItems(await saveBudgetItem(item));
+    } catch (err) {
+      console.error('Failed to save budget item:', err);
     }
 
     setIsBudgetModalOpen(false);
     setEditingBudgetItem(null);
   };
 
-  const handleDeleteBudgetItem = (id: string) => {
-    if (confirm('¿Estás seguro de eliminar este concepto de gasto?')) {
-      setBudgetItems((prev) => prev.filter((item) => item.id !== id));
+  const handleDeleteBudgetItem = async (id: string) => {
+    if (!confirm('¿Estás seguro de eliminar este concepto de gasto?')) return;
+    try {
+      setBudgetItems(await deleteBudgetItem(id));
+    } catch (err) {
+      console.error('Failed to delete budget item:', err);
     }
   };
 
-  const handleToggleBudgetItemPaid = (id: string) => {
-    setBudgetItems((prev) =>
-      prev.map((item) => {
-        if (item.id === id) {
-          const newIsPaid = !item.isPaid;
-          return {
-            ...item,
-            isPaid: newIsPaid,
-            paidAmount: newIsPaid ? item.actualCost : 0,
-          };
-        }
-        return item;
-      })
-    );
+  const handleToggleBudgetItemPaid = async (id: string) => {
+    const target = budgetItems.find((item) => item.id === id);
+    if (!target) return;
+    const newIsPaid = !target.isPaid;
+    try {
+      setBudgetItems(
+        await saveBudgetItem({
+          ...target,
+          isPaid: newIsPaid,
+          paidAmount: newIsPaid ? target.actualCost : 0,
+        })
+      );
+    } catch (err) {
+      console.error('Failed to update budget item:', err);
+    }
   };
 
   // Save guest
@@ -526,9 +506,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // WhatsApp and Personalized Link Helpers
   const getGuestInviteUrl = (code?: string) => {
-    if (!code) return window.location.origin;
     const origin = window.location.origin;
-    const path = window.location.pathname;
+    // Always point guests at the public invitation root, never the /panel route.
+    const path = window.location.pathname.replace(/\/panel\/?$/, '/') || '/';
+    if (!code) return `${origin}${path}`;
     return `${origin}${path}?code=${encodeURIComponent(code)}`;
   };
 
@@ -733,8 +714,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-[#07241B]/70 backdrop-blur-md overflow-hidden font-sans">
-      <div className="relative w-full max-w-7xl h-[92vh] bg-[#F7F3EC] border border-[#E5CFA3] rounded-[28px] sm:rounded-[36px] shadow-2xl text-[#2A2A2A] overflow-hidden flex flex-col md:flex-row">
+    <div
+      className={
+        asPage
+          ? 'h-screen w-full bg-[#07241B] overflow-hidden font-sans'
+          : 'fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-[#07241B]/70 backdrop-blur-md overflow-hidden font-sans'
+      }
+    >
+      <div
+        className={
+          asPage
+            ? 'relative w-full h-screen bg-[#F7F3EC] text-[#2A2A2A] overflow-hidden flex flex-col md:flex-row'
+            : 'relative w-full max-w-7xl h-[92vh] bg-[#F7F3EC] border border-[#E5CFA3] rounded-[28px] sm:rounded-[36px] shadow-2xl text-[#2A2A2A] overflow-hidden flex flex-col md:flex-row'
+        }
+      >
         
         {/* LOCKED STATE LOGIN SCREEN */}
         {!isUnlocked ? (
@@ -827,7 +820,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       className="w-full py-2.5 px-4 rounded-xl bg-white border border-[#E5CFA3] text-xs text-[#0F4C3A] hover:bg-[#F7F3EC] font-semibold transition-all cursor-pointer flex items-center justify-center space-x-2 shadow-2xs"
                     >
                       <ShieldCheck className="w-4 h-4 text-[#B98A2E]" />
-                      <span>Ingresar con PIN de Novios (PIN: 1234)</span>
+                      <span>Ingresar con PIN de Novios </span>
                     </button>
                   </div>
                 </div>
@@ -835,7 +828,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <form onSubmit={handleUnlock} className="space-y-4 pt-2">
                   <div className="space-y-1 text-left">
                     <label className="text-[10px] uppercase tracking-wider font-semibold text-[#B98A2E] block">
-                      PIN de Novios (Predeterminado: 1234)
+                      PIN de Novios
                     </label>
                     <div className="relative">
                       <input
@@ -870,7 +863,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       }}
                       className="text-[11px] text-[#0F4C3A] hover:underline font-medium cursor-pointer"
                     >
-                      ⚡ Auto-completar PIN "1234"
+                      ⚡ Auto-completar PIN 
                     </button>
                   </div>
 
@@ -1283,7 +1276,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)',
                                 }}
                                 itemStyle={{ color: '#FAFAF7' }}
-                                formatter={(value: number) => [`${value} invitados`, 'Cantidad']}
+                                formatter={(value) => [
+                                  `${Number(value ?? 0)} invitados`,
+                                  'Cantidad',
+                                ]}
                               />
                               <Legend
                                 verticalAlign="bottom"
@@ -1439,13 +1435,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         className="px-3 py-2 bg-white border border-[#E5CFA3] focus:outline-none rounded-full text-xs text-[#0F4C3A] font-medium uppercase tracking-wider font-sans cursor-pointer"
                       >
                         <option value="all">Todos los Grupos</option>
-                        <option value="Familia Novia">Familia Novia</option>
-                        <option value="Familia Novio">Familia Novio</option>
-                        <option value="Amigos Novia">Amigos Novia</option>
-                        <option value="Amigos Novio">Amigos Novio</option>
-                        <option value="Trabajo">Trabajo</option>
-                        <option value="VIP">VIP</option>
-                        <option value="General">General</option>
+                        {groupOptions.map((group) => (
+                          <option key={group} value={group}>{group}</option>
+                        ))}
                       </select>
                     </div>
 
@@ -1703,8 +1695,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   color: '#FAFAF7',
                                   fontSize: '11px',
                                 }}
-                                formatter={(value: number) => [`$${value.toLocaleString()}`, 'Gasto Real']}
-                              />
+                                formatter={(value) => [
+                                  `$${Number(value ?? 0).toLocaleString('es-MX')}`,
+                                  'Gasto Real',
+                                ]}
+                                />
                               <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
                             </PieChart>
                           </ResponsiveContainer>
@@ -2657,13 +2652,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       onChange={(e) => setEditingGuest({ ...editingGuest, groupCategory: e.target.value })}
                       className="w-full px-3.5 py-2 bg-white border border-[#E5CFA3] rounded-xl text-[#0F4C3A] font-medium focus:outline-none cursor-pointer"
                     >
-                      <option value="Familia Novia">Familia Novia</option>
-                      <option value="Familia Novio">Familia Novio</option>
-                      <option value="Amigos Novia">Amigos Novia</option>
-                      <option value="Amigos Novio">Amigos Novio</option>
-                      <option value="Trabajo">Trabajo</option>
-                      <option value="VIP">VIP</option>
-                      <option value="General">General</option>
+                      {groupOptions.map((group) => (
+                        <option key={group} value={group}>{group}</option>
+                      ))}
                     </select>
                   </div>
 

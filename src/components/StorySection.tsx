@@ -35,7 +35,7 @@ export const StorySection: React.FC<StorySectionProps> = ({ wedding, onOpenRsvp 
           <div className="md:col-span-5 relative">
             <div className="relative rounded-t-[160px] rounded-b-2xl overflow-hidden border border-[#E5CFA3] shadow-2xl shadow-[#0F4C3A]/10 bg-white/60 backdrop-blur-md group">
               <img
-                src={wedding.storyImageUrl || "https://images.unsplash.com/photo-1583939003579-730e3918a45a?auto=format&fit=crop&w=800&q=80"}
+                src={"/images/wedding_couple.jpeg"}
                 alt={wedding.coupleNames}
                 className="w-full h-96 sm:h-[450px] object-cover object-top transform group-hover:scale-105 transition-transform duration-700"
               />

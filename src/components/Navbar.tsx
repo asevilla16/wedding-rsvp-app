@@ -55,16 +55,16 @@ export const Navbar: React.FC<NavbarProps> = ({
             setActiveTab('hero');
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
-          className="flex items-center space-x-2 text-left group cursor-pointer"
+          className="flex items-center space-x-2 text-left group cursor-pointer shrink-0"
         >
-          <div className="w-8 h-8 rounded-full bg-[#0F4C3A] flex items-center justify-center text-[#F7F3EC] group-hover:scale-105 transition-all shadow-xs border border-[#B98A2E]/50">
+          <div className="w-8 h-8 rounded-full bg-[#0F4C3A] flex items-center justify-center text-[#F7F3EC] group-hover:scale-105 transition-all shadow-xs border border-[#B98A2E]/50 shrink-0">
             <Heart className="w-4 h-4 text-[#D9B872] fill-[#D9B872]/40" />
           </div>
-          <div>
-            <span className="font-serif text-lg font-medium tracking-tight text-[#0F4C3A] group-hover:text-[#0B3F35] transition-colors italic">
+          <div className="flex flex-col items-start">
+            <span className="font-serif text-lg font-medium tracking-tight text-[#0F4C3A] group-hover:text-[#0B3F35] transition-colors italic leading-tight">
               {coupleNames}
             </span>
-            <span className="hidden sm:inline-block text-[10px] uppercase tracking-[0.2em] text-[#B98A2E] ml-2 font-medium">
+            <span className="hidden sm:inline-block text-[10px] uppercase tracking-[0.2em] text-[#B98A2E] font-medium leading-tight">
               2026
             </span>
           </div>
@@ -118,14 +118,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
 
           {/* AI Concierge Button */}
-          <button
+          {/* <button
             onClick={onOpenAiConcierge}
             className="px-3.5 py-1.5 rounded-full bg-white/60 hover:bg-white/90 backdrop-blur-md border border-[#E5CFA3] text-[#0F4C3A] text-xs font-medium uppercase tracking-wider flex items-center space-x-1.5 transition-all shadow-xs cursor-pointer"
             title="Asistente IA de la Boda"
           >
             <Sparkles className="w-3.5 h-3.5 text-[#B98A2E] animate-pulse" />
             <span className="hidden sm:inline">Concierge IA</span>
-          </button>
+          </button> */}
 
           {/* Admin Toggle */}
           <button

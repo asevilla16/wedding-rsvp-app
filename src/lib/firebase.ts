@@ -8,6 +8,7 @@ import {
   User
 } from 'firebase/auth';
 import {
+  initializeFirestore,
   getFirestore,
   doc,
   getDoc,
@@ -21,14 +22,25 @@ import {
   onSnapshot
 } from 'firebase/firestore';
 import { WeddingDetails, GuestEntry, GuestbookWish, InitialDataStore } from '../types';
-import { defaultWeddingData } from '../data/defaultData';
+import { defaultWeddingData, defaultBudgetItems, GUEST_SEED_VERSION } from '../data/defaultData';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase with the provisioned Applet configuration
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 // Uses the default Firestore database for this project.
-export const db = getFirestore(app);
+// `ignoreUndefinedProperties` drops `undefined` fields from writes instead of
+// throwing — otherwise creating a NEW guest (whose optional fields like
+// primaryMealOptionId / plusOne / songRequest are undefined) fails the write and
+// silently falls back to the local store.
+export const db = (() => {
+  try {
+    return initializeFirestore(app, { ignoreUndefinedProperties: true });
+  } catch {
+    // Firestore already initialized for this app (e.g. HMR) — reuse it.
+    return getFirestore(app);
+  }
+})();
 
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
@@ -71,6 +83,47 @@ export async function seedFirebaseDataIfEmpty() {
         await withTimeout(setDoc(doc(db, 'wishes', wish.id), wish), 1000).catch(() => {});
       }
       console.log('Firebase seeded with initial wedding data successfully');
+    }
+
+    // Seed the guest list independently, gated by a version marker so that
+    // databases provisioned before the real list was added still receive it.
+    // Only missing ids are written: existing RSVPs are never overwritten, and
+    // guests deleted in the admin panel are not re-created on later loads.
+    const guestSeedRef = doc(db, 'wedding', 'guestSeed');
+    const guestSeedSnap = await withTimeout(getDoc(guestSeedRef), 2000);
+    const seededVersion = guestSeedSnap.exists() ? guestSeedSnap.data().version ?? 0 : 0;
+    if (seededVersion < GUEST_SEED_VERSION) {
+      const guestsSnap = await withTimeout(getDocs(collection(db, 'guests')), 2000);
+      const existingIds = new Set(guestsSnap.docs.map((d) => d.id));
+      for (const guest of defaultWeddingData.guests) {
+        if (!existingIds.has(guest.id)) {
+          await withTimeout(setDoc(doc(db, 'guests', guest.id), guest), 1000).catch(() => {});
+        }
+      }
+      await withTimeout(setDoc(guestSeedRef, { version: GUEST_SEED_VERSION }), 1000);
+      console.log('Firebase seeded with guest list successfully');
+    }
+
+    // Seed the budget collection independently — existing deployments were
+    // provisioned before budget items lived in Firestore. Prefer a pre-existing
+    // localStorage cache so a couple that already tracked expenses locally keeps
+    // their data; otherwise fall back to the bundled defaults.
+    const budgetSnap = await withTimeout(getDocs(collection(db, 'budget')), 2000);
+    if (budgetSnap.empty) {
+      let seed = defaultBudgetItems;
+      try {
+        const cached = localStorage.getItem('wedding_budget_items');
+        const parsed = cached ? JSON.parse(cached) : null;
+        if (Array.isArray(parsed) && parsed.length > 0) seed = parsed;
+      } catch {
+        // ignore malformed cache, use defaults
+      }
+      for (const item of seed) {
+        if (item && item.id) {
+          await withTimeout(setDoc(doc(db, 'budget', item.id), item), 1000).catch(() => {});
+        }
+      }
+      console.log('Firebase seeded with initial budget items successfully');
     }
   } catch (err) {
     console.warn('Firebase seed check warning (offline or fast fallback):', err);

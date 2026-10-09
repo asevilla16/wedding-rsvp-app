@@ -1,5 +1,5 @@
-import { WeddingDetails, GuestEntry, GuestbookWish, GalleryPhoto, InitialDataStore } from '../types';
-import { defaultWeddingData } from '../data/defaultData';
+import { WeddingDetails, GuestEntry, GuestbookWish, GalleryPhoto, BudgetItem, InitialDataStore } from '../types';
+import { defaultWeddingData, defaultBudgetItems } from '../data/defaultData';
 import { db, withTimeout, seedFirebaseDataIfEmpty } from '../lib/firebase';
 import {
   doc,
@@ -13,26 +13,25 @@ import {
   orderBy
 } from 'firebase/firestore';
 
-const LOCAL_KEY = 'wedding_app_local_store_v2';
-
 // Run seed check asynchronously
 seedFirebaseDataIfEmpty().catch(() => {});
 
-function getLocalBackup(): InitialDataStore {
-  try {
-    const saved = localStorage.getItem(LOCAL_KEY);
-    if (saved) return JSON.parse(saved);
-  } catch (e) {
-    console.warn('LocalStorage access failed:', e);
-  }
-  return defaultWeddingData;
+// Data sources, in priority order:
+//   1. Firebase Firestore (primary, persistent)
+//   2. The Express API backed by data/store.json (server-side fallback)
+//   3. defaultWeddingData bundled in the app (read-only, last resort)
+// A deep clone keeps the bundled defaults from being mutated by callers.
+function freshDefaults(): InitialDataStore {
+  return JSON.parse(JSON.stringify(defaultWeddingData)) as InitialDataStore;
 }
 
-function setLocalBackup(store: InitialDataStore) {
-  try {
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(store));
-  } catch (e) {
-    console.warn('LocalStorage save failed:', e);
+function normalizeVenue(wedding: WeddingDetails | undefined) {
+  if (!wedding) return;
+  if (!wedding.weddingLocation || wedding.weddingLocation.includes('México')) {
+    wedding.weddingLocation = defaultWeddingData.wedding.weddingLocation;
+  }
+  if (!wedding.venueAddress || wedding.venueAddress.includes('México')) {
+    wedding.venueAddress = defaultWeddingData.wedding.venueAddress;
   }
 }
 
@@ -46,46 +45,27 @@ export async function fetchWeddingInfo(): Promise<{ wedding: WeddingDetails; wis
 
     if (weddingSnap.exists()) {
       const wedding = weddingSnap.data() as WeddingDetails;
-      if (!wedding.weddingLocation || wedding.weddingLocation.includes('México')) {
-        wedding.weddingLocation = defaultWeddingData.wedding.weddingLocation;
-      }
-      if (!wedding.venueAddress || wedding.venueAddress.includes('México')) {
-        wedding.venueAddress = defaultWeddingData.wedding.venueAddress;
-      }
+      normalizeVenue(wedding);
       const wishes = wishesSnap.docs.map((d) => ({ id: d.id, ...d.data() } as GuestbookWish));
       return { wedding, wishes };
     }
   } catch (err) {
-    console.warn('Firestore fetch failed, falling back to server/local API:', err);
+    console.warn('Firestore fetch failed, falling back to server API:', err);
   }
 
   try {
     const res = await fetch('/api/wedding');
     if (res.ok) {
       const data = await res.json();
-      if (data.wedding) {
-        if (!data.wedding.weddingLocation || data.wedding.weddingLocation.includes('México')) {
-          data.wedding.weddingLocation = defaultWeddingData.wedding.weddingLocation;
-        }
-        if (!data.wedding.venueAddress || data.wedding.venueAddress.includes('México')) {
-          data.wedding.venueAddress = defaultWeddingData.wedding.venueAddress;
-        }
-      }
+      normalizeVenue(data.wedding);
       return data;
     }
   } catch (err) {
-    console.warn('Server API fetch failed, using local backup', err);
+    console.warn('Server API fetch failed, using bundled defaults', err);
   }
 
-  const backup = getLocalBackup();
-  if (backup.wedding) {
-    if (!backup.wedding.weddingLocation || backup.wedding.weddingLocation.includes('México')) {
-      backup.wedding.weddingLocation = defaultWeddingData.wedding.weddingLocation;
-    }
-    if (!backup.wedding.venueAddress || backup.wedding.venueAddress.includes('México')) {
-      backup.wedding.venueAddress = defaultWeddingData.wedding.venueAddress;
-    }
-  }
+  const backup = freshDefaults();
+  normalizeVenue(backup.wedding);
   return { wedding: backup.wedding, wishes: backup.wishes };
 }
 
@@ -93,17 +73,19 @@ export async function searchGuests(queryStr: string): Promise<GuestEntry[]> {
   const q = queryStr.trim().toLowerCase();
   if (!q) return [];
 
+  const matches = (guests: GuestEntry[]) =>
+    guests.filter(
+      (g) =>
+        g.primaryName.toLowerCase().includes(q) ||
+        g.code.toLowerCase() === q ||
+        (g.email && g.email.toLowerCase().includes(q))
+    );
+
   try {
     const guestsRef = collection(db, 'guests');
     const snap = await withTimeout(getDocs(guestsRef), 2000);
     if (!snap.empty) {
-      const allGuests = snap.docs.map((d) => ({ id: d.id, ...d.data() } as GuestEntry));
-      return allGuests.filter(
-        (g) =>
-          g.primaryName.toLowerCase().includes(q) ||
-          g.code.toLowerCase() === q ||
-          (g.email && g.email.toLowerCase().includes(q))
-      );
+      return matches(snap.docs.map((d) => ({ id: d.id, ...d.data() } as GuestEntry)));
     }
   } catch (err) {
     console.warn('Firestore search failed, using fallback:', err);
@@ -116,16 +98,10 @@ export async function searchGuests(queryStr: string): Promise<GuestEntry[]> {
       return data.guests;
     }
   } catch (err) {
-    console.warn('API guest search failed, searching local backup', err);
+    console.warn('API guest search failed, searching bundled defaults', err);
   }
 
-  const backup = getLocalBackup();
-  return backup.guests.filter(
-    (g) =>
-      g.primaryName.toLowerCase().includes(q) ||
-      g.code.toLowerCase() === q ||
-      (g.email && g.email.toLowerCase().includes(q))
-  );
+  return matches(freshDefaults().guests);
 }
 
 export async function submitRsvp(rsvpData: {
@@ -140,15 +116,13 @@ export async function submitRsvp(rsvpData: {
   email?: string;
   phone?: string;
 }): Promise<{ success: boolean; guest: GuestEntry }> {
-  let updatedGuest: GuestEntry | null = null;
-
   try {
     const guestRef = doc(db, 'guests', rsvpData.guestId);
     const guestSnap = await withTimeout(getDoc(guestRef), 2000);
 
     if (guestSnap.exists()) {
       const existing = guestSnap.data() as GuestEntry;
-      updatedGuest = {
+      const updatedGuest: GuestEntry = {
         ...existing,
         status: rsvpData.status,
         primaryMealOptionId: rsvpData.primaryMealOptionId || existing.primaryMealOptionId,
@@ -190,44 +164,32 @@ export async function submitRsvp(rsvpData: {
       body: JSON.stringify(rsvpData),
     });
     if (res.ok) {
-      const data = await res.json();
-      return data;
+      return await res.json();
     }
   } catch (err) {
-    console.warn('API submit RSVP failed, applying to local store', err);
+    console.warn('API submit RSVP failed', err);
   }
 
-  const backup = getLocalBackup();
-  const idx = backup.guests.findIndex((g) => g.id === rsvpData.guestId);
-  if (idx !== -1) {
-    updatedGuest = {
-      ...backup.guests[idx],
-      status: rsvpData.status,
-      primaryMealOptionId: rsvpData.primaryMealOptionId,
-      primaryDietaryRestrictions: rsvpData.primaryDietaryRestrictions,
-      plusOne: rsvpData.plusOne,
-      songRequest: rsvpData.songRequest,
-      messageToCouple: rsvpData.messageToCouple,
-      attendingEvents: rsvpData.attendingEvents || [],
-      email: rsvpData.email || backup.guests[idx].email,
-      phone: rsvpData.phone || backup.guests[idx].phone,
-      updatedAt: new Date().toISOString(),
+  // Last resort: compute an optimistic result from the bundled defaults.
+  // This is not persisted anywhere.
+  const guest = freshDefaults().guests.find((g) => g.id === rsvpData.guestId);
+  if (guest) {
+    return {
+      success: true,
+      guest: {
+        ...guest,
+        status: rsvpData.status,
+        primaryMealOptionId: rsvpData.primaryMealOptionId,
+        primaryDietaryRestrictions: rsvpData.primaryDietaryRestrictions,
+        plusOne: rsvpData.plusOne,
+        songRequest: rsvpData.songRequest,
+        messageToCouple: rsvpData.messageToCouple,
+        attendingEvents: rsvpData.attendingEvents || [],
+        email: rsvpData.email || guest.email,
+        phone: rsvpData.phone || guest.phone,
+        updatedAt: new Date().toISOString(),
+      },
     };
-    backup.guests[idx] = updatedGuest;
-
-    if (rsvpData.messageToCouple && rsvpData.messageToCouple.length > 3) {
-      backup.wishes.unshift({
-        id: `wsh_${Date.now()}`,
-        guestName: updatedGuest.primaryName,
-        message: rsvpData.messageToCouple,
-        date: new Date().toLocaleDateString('es-ES', { month: 'long', day: 'numeric', year: 'numeric' }),
-        isPublic: true,
-        likesCount: 1,
-      });
-    }
-
-    setLocalBackup(backup);
-    return { success: true, guest: updatedGuest };
   }
   throw new Error('Invitado no encontrado');
 }
@@ -252,9 +214,9 @@ export async function fetchAllGuests(pin: string): Promise<GuestEntry[]> {
       return data.guests;
     }
   } catch (err: any) {
-    console.warn('API fetch guests failed, using local backup');
+    console.warn('API fetch guests failed, using bundled defaults');
   }
-  return getLocalBackup().guests;
+  return freshDefaults().guests;
 }
 
 export async function saveGuest(pin: string, guest: Partial<GuestEntry>): Promise<GuestEntry[]> {
@@ -270,6 +232,7 @@ export async function saveGuest(pin: string, guest: Partial<GuestEntry>): Promis
       partySizeAllowed: guest.partySizeAllowed || 1,
       status: guest.status || 'pending',
       tableNumber: guest.tableNumber || '',
+      groupCategory: guest.groupCategory,
       primaryMealOptionId: guest.primaryMealOptionId,
       primaryDietaryRestrictions: guest.primaryDietaryRestrictions,
       plusOne: guest.plusOne,
@@ -298,12 +261,13 @@ export async function saveGuest(pin: string, guest: Partial<GuestEntry>): Promis
     console.warn('API save guest failed');
   }
 
-  const backup = getLocalBackup();
+  // Last resort: ephemeral list derived from bundled defaults (not persisted).
+  const guests = freshDefaults().guests;
   if (guest.id) {
-    const idx = backup.guests.findIndex((g) => g.id === guest.id);
-    if (idx !== -1) backup.guests[idx] = { ...backup.guests[idx], ...guest } as GuestEntry;
+    const idx = guests.findIndex((g) => g.id === guest.id);
+    if (idx !== -1) guests[idx] = { ...guests[idx], ...guest } as GuestEntry;
   } else {
-    backup.guests.unshift({
+    guests.unshift({
       id: guestId,
       code: guest.code || `INV-${Math.floor(1000 + Math.random() * 9000)}`,
       primaryName: guest.primaryName || 'Nuevo Invitado',
@@ -312,8 +276,7 @@ export async function saveGuest(pin: string, guest: Partial<GuestEntry>): Promis
       status: guest.status || 'pending',
     });
   }
-  setLocalBackup(backup);
-  return backup.guests;
+  return guests;
 }
 
 export async function deleteGuest(pin: string, guestId: string): Promise<GuestEntry[]> {
@@ -337,20 +300,13 @@ export async function deleteGuest(pin: string, guestId: string): Promise<GuestEn
     console.warn('API delete guest failed');
   }
 
-  const backup = getLocalBackup();
-  backup.guests = backup.guests.filter((g) => g.id !== guestId);
-  setLocalBackup(backup);
-  return backup.guests;
+  return freshDefaults().guests.filter((g) => g.id !== guestId);
 }
 
 export async function updateWeddingDetails(pin: string, wedding: Partial<WeddingDetails>): Promise<WeddingDetails> {
-  // 1. Update Local Storage immediately so changes are never lost
-  const backup = getLocalBackup();
-  const mergedWedding: WeddingDetails = { ...backup.wedding, ...wedding };
-  backup.wedding = mergedWedding;
-  setLocalBackup(backup);
+  const mergedWedding: WeddingDetails = { ...freshDefaults().wedding, ...wedding };
 
-  // 2. Persist to Firestore with timeout
+  // 1. Persist to Firestore with timeout
   try {
     const weddingRef = doc(db, 'wedding', 'details');
     await withTimeout(setDoc(weddingRef, mergedWedding, { merge: true }), 2500);
@@ -358,7 +314,7 @@ export async function updateWeddingDetails(pin: string, wedding: Partial<Wedding
     console.warn('Firestore updateWeddingDetails notice (handled gracefully):', err);
   }
 
-  // 3. Persist to Server store
+  // 2. Persist to the server store
   try {
     const res = await fetch('/api/wedding', {
       method: 'PUT',
@@ -370,7 +326,7 @@ export async function updateWeddingDetails(pin: string, wedding: Partial<Wedding
       if (data.wedding) return data.wedding;
     }
   } catch (err) {
-    console.warn('Server API update wedding noticed, continuing with local store');
+    console.warn('Server API update wedding noticed, returning merged result');
   }
 
   return mergedWedding;
@@ -409,10 +365,7 @@ export async function postGuestbookWish(guestName: string, message: string): Pro
     console.warn('API guestbook wish failed');
   }
 
-  const backup = getLocalBackup();
-  backup.wishes.unshift(newWish);
-  setLocalBackup(backup);
-  return backup.wishes;
+  return [newWish, ...freshDefaults().wishes];
 }
 
 export async function deleteWish(wishId: string): Promise<GuestbookWish[]> {
@@ -424,10 +377,7 @@ export async function deleteWish(wishId: string): Promise<GuestbookWish[]> {
     console.warn('Firestore deleteWish failed:', err);
   }
 
-  const backup = getLocalBackup();
-  backup.wishes = backup.wishes.filter((w) => w.id !== wishId);
-  setLocalBackup(backup);
-  return backup.wishes;
+  return freshDefaults().wishes.filter((w) => w.id !== wishId);
 }
 
 export async function updateWish(wishId: string, updates: Partial<GuestbookWish>): Promise<GuestbookWish[]> {
@@ -439,13 +389,7 @@ export async function updateWish(wishId: string, updates: Partial<GuestbookWish>
     console.warn('Firestore updateWish failed:', err);
   }
 
-  const backup = getLocalBackup();
-  const idx = backup.wishes.findIndex((w) => w.id === wishId);
-  if (idx !== -1) {
-    backup.wishes[idx] = { ...backup.wishes[idx], ...updates };
-  }
-  setLocalBackup(backup);
-  return backup.wishes;
+  return freshDefaults().wishes.map((w) => (w.id === wishId ? { ...w, ...updates } : w));
 }
 
 export async function saveGalleryPhoto(photo: GalleryPhoto, currentWedding: WeddingDetails): Promise<WeddingDetails> {
@@ -466,6 +410,7 @@ export async function saveGalleryPhoto(photo: GalleryPhoto, currentWedding: Wedd
   }
 
   return await updateWeddingDetails(currentWedding.adminPin || '1234', {
+    ...currentWedding,
     galleryPhotos: updatedPhotos,
   });
 }
@@ -475,8 +420,86 @@ export async function deleteGalleryPhoto(photoId: string, currentWedding: Weddin
   const updatedPhotos = currentPhotos.filter((p) => p.id !== photoId);
 
   return await updateWeddingDetails(currentWedding.adminPin || '1234', {
+    ...currentWedding,
     galleryPhotos: updatedPhotos,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Budget & Expenses
+//
+// Persisted in the Firestore `budget` collection (one document per line item).
+// When Firestore is unreachable we fall back to a localStorage cache of the
+// last known list, and finally to the bundled defaults.
+// ---------------------------------------------------------------------------
+const BUDGET_CACHE_KEY = 'wedding_budget_items';
+
+function readBudgetCache(): BudgetItem[] | null {
+  try {
+    const cached = localStorage.getItem(BUDGET_CACHE_KEY);
+    if (cached) return JSON.parse(cached) as BudgetItem[];
+  } catch (err) {
+    console.warn('Budget cache read failed:', err);
+  }
+  return null;
+}
+
+function writeBudgetCache(items: BudgetItem[]) {
+  try {
+    localStorage.setItem(BUDGET_CACHE_KEY, JSON.stringify(items));
+  } catch (err) {
+    console.warn('Budget cache write failed:', err);
+  }
+}
+
+function sortBudgetItems(items: BudgetItem[]): BudgetItem[] {
+  return [...items].sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
+}
+
+export async function fetchBudgetItems(): Promise<BudgetItem[]> {
+  try {
+    const snap = await withTimeout(getDocs(collection(db, 'budget')), 2000);
+    if (!snap.empty) {
+      const items = sortBudgetItems(snap.docs.map((d) => ({ id: d.id, ...d.data() } as BudgetItem)));
+      writeBudgetCache(items);
+      return items;
+    }
+  } catch (err) {
+    console.warn('Firestore fetchBudgetItems failed, using local fallback:', err);
+  }
+
+  return readBudgetCache() ?? sortBudgetItems(JSON.parse(JSON.stringify(defaultBudgetItems)));
+}
+
+export async function saveBudgetItem(item: BudgetItem): Promise<BudgetItem[]> {
+  try {
+    await withTimeout(setDoc(doc(db, 'budget', item.id), item, { merge: true }), 2000);
+    return await fetchBudgetItems();
+  } catch (err) {
+    console.warn('Firestore saveBudgetItem failed, updating local cache:', err);
+  }
+
+  const items = readBudgetCache() ?? (JSON.parse(JSON.stringify(defaultBudgetItems)) as BudgetItem[]);
+  const idx = items.findIndex((i) => i.id === item.id);
+  if (idx !== -1) items[idx] = item;
+  else items.push(item);
+  const sorted = sortBudgetItems(items);
+  writeBudgetCache(sorted);
+  return sorted;
+}
+
+export async function deleteBudgetItem(id: string): Promise<BudgetItem[]> {
+  try {
+    await withTimeout(deleteDoc(doc(db, 'budget', id)), 2000);
+    return await fetchBudgetItems();
+  } catch (err) {
+    console.warn('Firestore deleteBudgetItem failed, updating local cache:', err);
+  }
+
+  const items = readBudgetCache() ?? (JSON.parse(JSON.stringify(defaultBudgetItems)) as BudgetItem[]);
+  const sorted = sortBudgetItems(items.filter((i) => i.id !== id));
+  writeBudgetCache(sorted);
+  return sorted;
 }
 
 export async function askAiConcierge(prompt: string, type: 'qa' | 'toast_generator' = 'qa'): Promise<string> {

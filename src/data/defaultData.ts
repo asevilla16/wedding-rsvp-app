@@ -1,11 +1,85 @@
-import { InitialDataStore } from '../types';
+import { InitialDataStore, BudgetItem, GuestEntry } from '../types';
+
+// Real invitation list: [name, group]. Expanded into pending GuestEntry records
+// below. Bump GUEST_SEED_VERSION after editing so existing Firestore databases
+// pick up the new names (see seedFirebaseDataIfEmpty).
+export const GUEST_SEED_VERSION = 1;
+
+const guestList: [string, string][] = [
+  ['Abuela Emilia', 'La López'],
+  ['Abuela Juanita', 'Copán'],
+  ['Abuelo Tulio', 'Copán'],
+  ['Esposo Karla (Willfredo)', 'La López'],
+  ['Joel', 'La López'],
+  ['Pastor', 'Iglesia'],
+  ['Pastora', 'Iglesia'],
+  ['Tía Jenny', 'La López'],
+  ['Tia Joly', 'La López'],
+  ['Tía Karla', 'La López'],
+  ['Andreita Moradel', 'USA'],
+  ['Gustavo (esposo Kensy)', 'Amigos'],
+  ['Juan Ramon Munguia', 'Pajesito'],
+  ['Marta Rapalo', 'Amigos'],
+  ['Brisshaldy Murillo', 'Aurora'],
+  ['Danny Adolfo Murillo (fitito)', 'Aurora'],
+  ['Emily Mendoza', 'Aurora'],
+  ['Isela Miranda', 'Aurora'],
+  ['Kenneth Chavez', 'Aurora'],
+  ['Michelle Ortez', 'Aurora'],
+  ['Papito Adolfo Murillo', 'Aurora'],
+  ['Tío Fito', 'Aurora'],
+  ['Anthon Noriega', 'Pajesito'],
+  ['Chelito', 'Suncery'],
+  ['Magda', 'Suncery'],
+  ['Doris Miranda', 'Suncery'],
+  ['Eren Garcia', 'Pajesito'],
+  ['Hilary', 'Suncery'],
+  ['Krizzia Munguia', 'Casa'],
+  ['Mario Quijada', 'Casa'],
+  ['Tía Wendy', 'Suncery'],
+  ['Tío Cute', 'Suncery'],
+  ['Kensy Ayala', 'Amigos'],
+  ['Daniel Garcia', 'USA'],
+  ['Erick Omar', 'USA'],
+  ['Gadi Orellana', 'Amigos'],
+  ['Rachel', 'USA'],
+  ['Sandra Castellon', 'Amigos'],
+  ['Tía Cinthia', 'USA'],
+  ['Tío Dennys', 'USA'],
+  ['Alexander Martinez', 'Amigos'],
+  ['Carlitos Fuentes', 'Amigos'],
+  ['Dashyanara', 'USA'],
+  ['Dennis Javier', 'USA'],
+  ['Ezequiel Banegas', 'Amigos'],
+  ['Liz Pupo', 'USA'],
+  ['Odalis Chavez', 'USA'],
+  ['Sra. Iris Hernandez', 'Amigos'],
+  ['Tío Danilo', 'USA'],
+  ['Diana Hernandez', 'Amigos'],
+  ['Jeanca Elvir', 'Amigos'],
+  ['Karen Perez', 'Amigos'],
+  ['Luis Bernard', 'Amigos'],
+  ['Marly Rapalo', 'Amigos'],
+  ['Michael (primo)', 'La López'],
+  ['Nadia Reyes', 'Amigos'],
+];
+
+const seededGuests: GuestEntry[] = guestList.map(([primaryName, groupCategory], i) => ({
+  id: `gst_list_${i + 1}`,
+  code: `INV-${1001 + i}`,
+  primaryName,
+  partySizeAllowed: 1,
+  status: 'pending',
+  attendingEvents: [],
+  groupCategory,
+}));
 
 export const defaultWeddingData: InitialDataStore = {
   wedding: {
     coupleNames: "Angel Sevilla & Krister Chavez",
     partner1Name: "Angel Sevilla",
     partner2Name: "Krister Munguia",
-    weddingDate: "2026-11-14T17:00:00",
+    weddingDate: "2026-11-04T17:00:00",
     weddingLocation: "Angeli Gardens, San Pedro Sula",
     venueAddress: "Angeli Gardens, Col. Las Mesetas, San Pedro Sula, Honduras",
     venueMapUrl: "https://maps.app.goo.gl/cfh3eQzKUS3Mp25i7",
@@ -242,7 +316,8 @@ export const defaultWeddingData: InitialDataStore = {
       updatedAt: "2026-07-14T10:15:00Z",
       tableNumber: "Mesa 2",
       groupCategory: "Amigos Novio"
-    }
+    },
+    ...seededGuests
   ],
   wishes: [
     {
@@ -263,3 +338,69 @@ export const defaultWeddingData: InitialDataStore = {
     }
   ]
 };
+
+// Bundled fallback for the couple's budget tracker. Used when Firestore is
+// unreachable and no local cache exists. Firestore's `budget` collection is
+// seeded from this list on first run.
+export const defaultBudgetItems: BudgetItem[] = [
+  {
+    id: 'b-1',
+    category: 'Lugar & Banquetes',
+    description: 'Banquete de Bodas (3 tiempos para 120 personas)',
+    vendor: 'Angeli Gardens Catering',
+    estimatedCost: 3500,
+    actualCost: 3600,
+    paidAmount: 2000,
+    isPaid: false,
+    notes: 'Primer abono realizado en Mayo. Saldo pendiente 15 días antes.',
+    dueDate: '2026-10-15',
+  },
+  {
+    id: 'b-2',
+    category: 'Fotografía & Video',
+    description: 'Cobertura completa 8 hrs + Sesión de novios + Video Drone',
+    vendor: 'Studio Memory Films',
+    estimatedCost: 1800,
+    actualCost: 1750,
+    paidAmount: 1750,
+    isPaid: true,
+    notes: 'Pagado en su totalidad con descuento por pronto pago.',
+    dueDate: '2026-08-01',
+  },
+  {
+    id: 'b-3',
+    category: 'Música & DJ',
+    description: 'DJ En Vivo, Pista de baile LED e Iluminación Robótica',
+    vendor: 'ProAudio Eventos',
+    estimatedCost: 1200,
+    actualCost: 1200,
+    paidAmount: 600,
+    isPaid: false,
+    notes: '50% anticipo pagado. Saldo el día del evento.',
+    dueDate: '2026-11-14',
+  },
+  {
+    id: 'b-4',
+    category: 'Decoración & Flores',
+    description: 'Diseño floral cenador, centros de mesa y ramo de novia',
+    vendor: 'Botanica Floral Design',
+    estimatedCost: 1500,
+    actualCost: 1600,
+    paidAmount: 800,
+    isPaid: false,
+    notes: 'Incluye arcos florales para la ceremonia.',
+    dueDate: '2026-10-30',
+  },
+  {
+    id: 'b-5',
+    category: 'Vestuario & Belleza',
+    description: 'Vestido de novia, Maquillaje profesional y Peinado',
+    vendor: 'Bridal Atelier & Salon',
+    estimatedCost: 2000,
+    actualCost: 2100,
+    paidAmount: 2100,
+    isPaid: true,
+    notes: 'Prueba de maquillaje completada.',
+    dueDate: '2026-09-10',
+  },
+];

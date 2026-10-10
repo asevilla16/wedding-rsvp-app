@@ -54,6 +54,13 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code') || params.get('invitado') || params.get('guest');
     if (code) {
+      // Invitation links are always for the public site. Older copies were
+      // generated as /panel?code=...; send those guests to the invitation
+      // instead of the couple's login screen.
+      if (window.location.pathname.replace(/\/+$/, '') === '/panel') {
+        window.history.replaceState({}, '', `/${window.location.search}`);
+        setRoute('/');
+      }
       setInitialCode(code);
       setRsvpModalOpen(true);
     }

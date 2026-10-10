@@ -4,6 +4,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import confetti from 'canvas-confetti';
 import { WeddingDetails, GuestEntry } from '../types';
 import { fetchInvitation, submitRsvp } from '../services/api';
+import { getInviteUrl } from '../lib/inviteCode';
 
 interface RsvpModalProps {
   wedding: WeddingDetails;
@@ -613,7 +614,7 @@ export const RsvpModal: React.FC<RsvpModalProps> = ({ wedding, isOpen, initialCo
                     </div>
                     <div className="p-2.5 bg-white rounded-xl border border-[#E5CFA3] shadow-xs">
                       <QRCodeSVG
-                        value={`${window.location.origin}${window.location.pathname}?code=${encodeURIComponent(selectedGuest.code)}`}
+                        value={getInviteUrl(selectedGuest.code)}
                         size={120}
                         fgColor="#0F4C3A"
                         bgColor="#FFFFFF"

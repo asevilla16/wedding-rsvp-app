@@ -20,6 +20,13 @@ export function generateInviteCode(): string {
   return code;
 }
 
+// A guest's personal invitation link. Always the public site root, never the
+// page it's generated from (e.g. /panel), so every copy/QR/WhatsApp link is
+// the same.
+export function getInviteUrl(code: string): string {
+  return `${window.location.origin}/?code=${encodeURIComponent(code)}`;
+}
+
 // True for codes in the secure format above. Older sequential codes such as
 // INV-1001 fail this check and should be rotated.
 export function isSecureInviteCode(code: string | undefined): boolean {

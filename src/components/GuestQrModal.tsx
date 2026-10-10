@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { X, QrCode, Download, Copy, Check, Send, Sparkles } from 'lucide-react';
 import { GuestEntry } from '../types';
+import { getInviteUrl } from '../lib/inviteCode';
 
 interface GuestQrModalProps {
   guest: GuestEntry | null;
@@ -16,9 +17,7 @@ export const GuestQrModal: React.FC<GuestQrModalProps> = ({ guest, coupleNames, 
 
   if (!isOpen || !guest) return null;
 
-  const origin = window.location.origin;
-  const path = window.location.pathname;
-  const inviteUrl = `${origin}${path}?code=${encodeURIComponent(guest.code)}`;
+  const inviteUrl = getInviteUrl(guest.code);
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(inviteUrl);

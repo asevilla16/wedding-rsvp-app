@@ -83,7 +83,7 @@ import {
   seedFirebaseDataIfEmpty,
 } from '../lib/firebase';
 import { buildCoverageMap, findCompanionReviews, CompanionReview } from '../lib/guestCoverage';
-import { generateInviteCode, isSecureInviteCode } from '../lib/inviteCode';
+import { generateInviteCode, isSecureInviteCode, getInviteUrl } from '../lib/inviteCode';
 import { onAuthStateChanged, User } from 'firebase/auth';
 
 interface AdminDashboardProps {
@@ -559,13 +559,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   // WhatsApp and Personalized Link Helpers
-  const getGuestInviteUrl = (code?: string) => {
-    const origin = window.location.origin;
-    // Always point guests at the public invitation root, never the /panel route.
-    const path = window.location.pathname.replace(/\/panel\/?$/, '/') || '/';
-    if (!code) return `${origin}${path}`;
-    return `${origin}${path}?code=${encodeURIComponent(code)}`;
-  };
+  const getGuestInviteUrl = (code?: string) => (code ? getInviteUrl(code) : `${window.location.origin}/`);
 
   const getWhatsappInviteUrl = (guest: Partial<GuestEntry>) => {
     const inviteUrl = getGuestInviteUrl(guest.code);

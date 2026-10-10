@@ -88,12 +88,13 @@ service cloud.firestore {
         && (newLink == oldLink || newLink == null);
     }
 
-    // Guestbook wishes: anyone can read and post; visitors may only bump the
-    // like counter; editing and deleting is for admins.
+    // Guestbook wishes: anyone can read and post; visitors may only add one
+    // like at a time (+1 on likesCount); editing and deleting is for admins.
     match /wishes/{wishId} {
       allow read, create: if true;
       allow update: if isAdmin()
-        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount']);
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount'])
+            && request.resource.data.likesCount == resource.data.get('likesCount', 0) + 1);
       allow delete: if isAdmin();
     }
 

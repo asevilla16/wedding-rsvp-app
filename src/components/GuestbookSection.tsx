@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { MessageSquareCode, Heart, Send } from 'lucide-react';
 import { GuestbookWish } from '../types';
-import { postGuestbookWish } from '../services/api';
+import { postGuestbookWish, likeWish } from '../services/api';
+
+const LIKED_STORAGE_KEY = 'guestbook_liked_wishes';
 
 interface GuestbookSectionProps {
   wishes: GuestbookWish[];
@@ -12,7 +14,18 @@ export const GuestbookSection: React.FC<GuestbookSectionProps> = ({ wishes, onWi
   const [name, setName] = useState('');
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [likedIds, setLikedIds] = useState<string[]>([]);
+  // Wishes this browser has liked, remembered across visits so a guest can't
+  // like the same wish twice (a convenience, not a security measure).
+  const [likedIds, setLikedIds] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(LIKED_STORAGE_KEY) || '[]');
+    } catch {
+      return [];
+    }
+  });
+  // Likes sent during this visit: `wishes` isn't refetched after a like, so
+  // these are added on top of the stored count until the next load.
+  const [likedThisVisit, setLikedThisVisit] = useState<string[]>([]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,9 +44,27 @@ export const GuestbookSection: React.FC<GuestbookSectionProps> = ({ wishes, onWi
     }
   };
 
-  const handleLike = (id: string) => {
+  const rememberLiked = (ids: string[]) => {
+    setLikedIds(ids);
+    try {
+      localStorage.setItem(LIKED_STORAGE_KEY, JSON.stringify(ids));
+    } catch {
+      /* storage unavailable: the like still counts, it just isn't remembered */
+    }
+  };
+
+  const handleLike = async (id: string) => {
     if (likedIds.includes(id)) return;
-    setLikedIds([...likedIds, id]);
+    // Optimistic: show the like right away, undo it if Firestore refuses.
+    rememberLiked([...likedIds, id]);
+    setLikedThisVisit((prev) => [...prev, id]);
+    try {
+      await likeWish(id);
+    } catch (err) {
+      console.error('Could not save like:', err);
+      rememberLiked(likedIds.filter((x) => x !== id));
+      setLikedThisVisit((prev) => prev.filter((x) => x !== id));
+    }
   };
 
   return (
@@ -98,7 +129,7 @@ export const GuestbookSection: React.FC<GuestbookSectionProps> = ({ wishes, onWi
           <div className="lg:col-span-7 space-y-4 max-h-[600px] overflow-y-auto pr-2">
             {wishes.filter((w) => w.isPublic !== false).map((wish) => {
               const isLiked = likedIds.includes(wish.id);
-              const likes = (wish.likesCount || 0) + (isLiked ? 1 : 0);
+              const likes = (wish.likesCount || 0) + (likedThisVisit.includes(wish.id) ? 1 : 0);
 
               return (
                 <div

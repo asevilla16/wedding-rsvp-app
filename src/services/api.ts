@@ -14,7 +14,8 @@ import {
   query,
   orderBy,
   where,
-  writeBatch
+  writeBatch,
+  increment
 } from 'firebase/firestore';
 
 // Data sources, in priority order:
@@ -478,6 +479,12 @@ export async function postGuestbookWish(guestName: string, message: string): Pro
   }
 
   return [newWish, ...freshDefaults().wishes];
+}
+
+// Adds one like to a guestbook wish. Uses an atomic increment so likes from
+// several visitors at once are all counted.
+export async function likeWish(wishId: string): Promise<void> {
+  await withTimeout(updateDoc(doc(db, 'wishes', wishId), { likesCount: increment(1) }), 2000);
 }
 
 export async function deleteWish(wishId: string): Promise<GuestbookWish[]> {

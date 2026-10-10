@@ -1595,8 +1595,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="space-y-4">
                   {/* Action Bar */}
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-                    <div className="flex items-center space-x-2 w-full sm:w-auto">
-                      <div className="relative flex-1 sm:w-64">
+                    {/* Mobile: search on its own row, the two filters side by side below it.
+                        sm and up: everything on one row. */}
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+                      <div className="relative w-full sm:w-64">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#B98A2E]" />
                         <input
                           type="text"
@@ -1607,10 +1609,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         />
                       </div>
 
+                      <div className="flex items-center gap-2 w-full sm:w-auto">
                       <select
                         value={statusFilter}
                         onChange={(e) => setStatusFilter(e.target.value as any)}
-                        className="px-3 py-2 bg-white border border-[#E5CFA3] focus:outline-none rounded-full text-xs text-[#0F4C3A] font-medium uppercase tracking-wider font-sans cursor-pointer"
+                        className="flex-1 min-w-0 sm:flex-none px-3 py-2 bg-white border border-[#E5CFA3] focus:outline-none rounded-full text-xs text-[#0F4C3A] font-medium uppercase tracking-wider font-sans cursor-pointer truncate"
                       >
                         <option value="all">Todos los Estados</option>
                         <option value="attending">Confirmados</option>
@@ -1621,13 +1624,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <select
                         value={groupFilter}
                         onChange={(e) => setGroupFilter(e.target.value)}
-                        className="px-3 py-2 bg-white border border-[#E5CFA3] focus:outline-none rounded-full text-xs text-[#0F4C3A] font-medium uppercase tracking-wider font-sans cursor-pointer"
+                        className="flex-1 min-w-0 sm:flex-none px-3 py-2 bg-white border border-[#E5CFA3] focus:outline-none rounded-full text-xs text-[#0F4C3A] font-medium uppercase tracking-wider font-sans cursor-pointer truncate"
                       >
                         <option value="all">Todos los Grupos</option>
                         {groupOptions.map((group) => (
                           <option key={group} value={group}>{group}</option>
                         ))}
                       </select>
+                      </div>
                     </div>
 
                     <div className="flex items-center space-x-2 w-full sm:w-auto justify-end">

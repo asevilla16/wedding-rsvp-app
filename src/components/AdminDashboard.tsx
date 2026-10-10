@@ -85,6 +85,15 @@ import {
 } from '../lib/firebase';
 import { buildCoverageMap, findCompanionReviews, CompanionReview } from '../lib/guestCoverage';
 import { generateInviteCode, isSecureInviteCode, getInviteUrl } from '../lib/inviteCode';
+
+// Budget amounts are in Honduran Lempiras, e.g. "L 12,500.00".
+const formatLempiras = (amount: number, decimals = 2) =>
+  new Intl.NumberFormat('es-HN', {
+    style: 'currency',
+    currency: 'HNL',
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(Number(amount) || 0);
 import { onAuthStateChanged, User } from 'firebase/auth';
 
 interface AdminDashboardProps {
@@ -1044,7 +1053,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <span>Presupuesto y Gastos</span>
                   </div>
                   <span className="px-2 py-0.5 rounded-full bg-[#154D3D] text-[10px] text-[#D4AF37] font-bold">
-                    ${totalBudgetActual.toLocaleString()}
+                    {formatLempiras(totalBudgetActual, 0)}
                   </span>
                 </button>
 
@@ -1887,7 +1896,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <Wallet className="w-4 h-4" />
                       </div>
                       <div className="text-2xl font-serif text-[#0F4C3A] font-bold italic">
-                        ${totalBudgetEstimated.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                        {formatLempiras(totalBudgetEstimated)}
                       </div>
                       <div className="text-[10px] text-[#2A2A2A]/60 font-light">Meta de gastos presupuestada</div>
                     </div>
@@ -1898,7 +1907,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <BarChart3 className="w-4 h-4" />
                       </div>
                       <div className="text-2xl font-serif text-[#0F4C3A] font-bold italic">
-                        ${totalBudgetActual.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                        {formatLempiras(totalBudgetActual)}
                       </div>
                       <div className="text-[10px] text-[#2A2A2A]/60 font-light">Total acumulado de proveedores</div>
                     </div>
@@ -1909,7 +1918,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <CheckCircle2 className="w-4 h-4" />
                       </div>
                       <div className="text-2xl font-serif text-emerald-900 font-bold italic">
-                        ${totalBudgetPaid.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                        {formatLempiras(totalBudgetPaid)}
                       </div>
                       <div className="text-[10px] text-emerald-700/80 font-medium">{budgetPaidPercentage}% del presupuesto liquidado</div>
                     </div>
@@ -1920,7 +1929,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <Clock className="w-4 h-4" />
                       </div>
                       <div className="text-2xl font-serif text-amber-900 font-bold italic">
-                        ${totalBudgetPending.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                        {formatLempiras(totalBudgetPending)}
                       </div>
                       <div className="text-[10px] text-amber-700/80 font-medium">Pendiente de liquidación</div>
                     </div>
@@ -1973,7 +1982,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   fontSize: '11px',
                                 }}
                                 formatter={(value) => [
-                                  `$${Number(value ?? 0).toLocaleString('es-MX')}`,
+                                  formatLempiras(Number(value ?? 0)),
                                   'Gasto Real',
                                 ]}
                                 />
@@ -2012,7 +2021,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <div className="p-3 rounded-xl bg-[#F7F3EC] border border-[#E5CFA3]">
                               <span className="text-[10px] uppercase font-bold text-[#2A2A2A]/60 block">Estimado vs Real</span>
                               <span className={`text-xs font-semibold font-serif ${totalBudgetActual <= totalBudgetEstimated ? 'text-emerald-700' : 'text-rose-700'}`}>
-                                {totalBudgetActual <= totalBudgetEstimated ? 'DENTRO DE PRESUPUESTO' : `EXCEDE EN $${(totalBudgetActual - totalBudgetEstimated).toLocaleString()}`}
+                                {totalBudgetActual <= totalBudgetEstimated ? 'DENTRO DE PRESUPUESTO' : `EXCEDE EN ${formatLempiras(totalBudgetActual - totalBudgetEstimated)}`}
                               </span>
                             </div>
                             <div className="p-3 rounded-xl bg-[#F7F3EC] border border-[#E5CFA3]">
@@ -2135,16 +2144,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                     {item.notes && <div className="text-[10px] text-[#2A2A2A]/60 italic">{item.notes}</div>}
                                   </td>
                                   <td className="p-3.5 text-right font-mono text-xs text-[#2A2A2A]/70">
-                                    ${item.estimatedCost.toLocaleString()}
+                                    {formatLempiras(item.estimatedCost)}
                                   </td>
                                   <td className="p-3.5 text-right font-mono text-xs font-semibold text-[#0F4C3A]">
-                                    ${item.actualCost.toLocaleString()}
+                                    {formatLempiras(item.actualCost)}
                                   </td>
                                   <td className="p-3.5 text-right font-mono text-xs text-emerald-700 font-semibold">
-                                    ${item.paidAmount.toLocaleString()}
+                                    {formatLempiras(item.paidAmount)}
                                   </td>
                                   <td className="p-3.5 text-right font-mono text-xs text-amber-700 font-bold">
-                                    ${pending.toLocaleString()}
+                                    {formatLempiras(pending)}
                                   </td>
                                   <td className="p-3.5 text-center font-sans">
                                     <button
@@ -2826,7 +2835,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[10px] uppercase tracking-widest font-semibold text-[#B98A2E] mb-1">Costo Estimado ($)</label>
+                    <label className="block text-[10px] uppercase tracking-widest font-semibold text-[#B98A2E] mb-1">Costo Estimado (L)</label>
                     <input
                       type="number"
                       min={0}
@@ -2838,7 +2847,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
 
                   <div>
-                    <label className="block text-[10px] uppercase tracking-widest font-semibold text-[#B98A2E] mb-1">Costo Real / Contrato ($)</label>
+                    <label className="block text-[10px] uppercase tracking-widest font-semibold text-[#B98A2E] mb-1">Costo Real / Contrato (L)</label>
                     <input
                       type="number"
                       min={0}
@@ -2852,7 +2861,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[10px] uppercase tracking-widest font-semibold text-[#B98A2E] mb-1">Monto Pagado / Abonado ($)</label>
+                    <label className="block text-[10px] uppercase tracking-widest font-semibold text-[#B98A2E] mb-1">Monto Pagado / Abonado (L)</label>
                     <input
                       type="number"
                       min={0}

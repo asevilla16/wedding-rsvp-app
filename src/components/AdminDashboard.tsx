@@ -70,6 +70,7 @@ import {
   deleteBudgetItem,
   applyCompanionReview,
   InviteCodeInUseError,
+  fetchGuestNotes,
 } from '../services/api';
 import { defaultBudgetItems } from '../data/defaultData';
 import { GuestQrModal } from './GuestQrModal';
@@ -182,6 +183,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Guest Edit Modal State
   const [editingGuest, setEditingGuest] = useState<Partial<GuestEntry> | null>(null);
+  // Private comments per guest id (guestNotes collection), and the draft for
+  // the guest being edited.
+  const [guestNotes, setGuestNotes] = useState<Record<string, string>>({});
+  const [editingNote, setEditingNote] = useState('');
+  const editingGuestKey = editingGuest ? editingGuest.id ?? 'new' : null;
+  useEffect(() => {
+    setEditingNote(editingGuest?.id ? guestNotes[editingGuest.id] || '' : '');
+    // Only reset the draft when a different guest is opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingGuestKey]);
 
   // Settings Form State
   const [settingsForm, setSettingsForm] = useState<WeddingDetails>(wedding);
@@ -288,8 +299,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         errorDetail = 'Falta agregar el dominio del sitio web a "Dominios autorizados" en Firebase Authentication > Ajustes.';
       } else if (err.code === 'auth/popup-blocked') {
         errorDetail = 'El navegador bloqueó la ventana emergente de Google.';
-      } else if (err.code === 'auth/unauthorized-domain' || err.code === 'auth/operation-not-allowed') {
-        errorDetail = 'El dominio de la vista previa requiere autorización en la consola de Firebase.';
+      } else if (err.code === 'auth/unauthorized-domain') {
+        errorDetail = `Agrega "${window.location.hostname}" en Firebase Authentication > Configuración > Dominios autorizados.`;
+      } else if (err.code === 'auth/operation-not-allowed') {
+        errorDetail = 'Activa el proveedor "Google" en Firebase Authentication > Método de acceso.';
       } else if (err.code === 'auth/popup-closed-by-user') {
         errorDetail = 'Se cerró la ventana de inicio de sesión de Google.';
       } else if (err.message) {
@@ -320,8 +333,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const loadGuestsData = async () => {
     setLoadingGuests(true);
     try {
-      const data = await fetchAllGuests(pinInput);
+      const [data, notes] = await Promise.all([fetchAllGuests(pinInput), fetchGuestNotes()]);
       setGuests(data);
+      setGuestNotes(notes);
     } catch (err: any) {
       // A failure to load the guest list is not an auth failure — keep the
       // couple in the panel and just surface the problem.
@@ -451,7 +465,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const matchesStatus = statusFilter === 'all' || g.status === statusFilter;
     const matchesGroup = groupFilter === 'all' || (g.groupCategory || 'General') === groupFilter;
     return matchesSearch && matchesStatus && matchesGroup;
-  });
+  })
+    // Alphabetical by name; Spanish collation so accents sort naturally
+    // ("Tía" next to "Tia") and case doesn't matter.
+    .sort((a, b) => a.primaryName.localeCompare(b.primaryName, 'es', { sensitivity: 'base' }));
 
   // Budget Calculations
   const totalBudgetEstimated = budgetItems.reduce((acc, item) => acc + (Number(item.estimatedCost) || 0), 0);
@@ -538,12 +555,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (!editingGuest || !editingGuest.primaryName) return;
 
     try {
-      const updatedList = await saveGuest(pinInput, editingGuest);
+      const updatedList = await saveGuest(pinInput, editingGuest, editingNote);
       setGuests(updatedList);
+      setGuestNotes(await fetchGuestNotes());
       setEditingGuest(null);
     } catch (err) {
       console.error(err);
       if (err instanceof InviteCodeInUseError) alert(err.message);
+      else if ((err as { code?: string })?.code === 'permission-denied')
+        alert('No se pudo guardar: permiso denegado. Revisa que las reglas de Firestore estén actualizadas y que tu sesión siga activa.');
+      else alert('No se pudo guardar el invitado. Inténtalo de nuevo.');
     }
   };
 
@@ -1584,9 +1605,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                   {/* Guests Table */}
                   <div className="rounded-[24px] bg-white border border-[#E5CFA3] overflow-x-auto shadow-xs">
-                    <table className="w-full min-w-[960px] text-left text-xs text-[#2A2A2A]">
+                    <table className="w-full min-w-[1140px] text-left text-xs text-[#2A2A2A]">
                       <thead className="bg-[#F7F3EC] border-b border-[#E5CFA3] text-[10px] font-medium uppercase tracking-widest text-[#B98A2E]">
                         <tr>
+                          <th className="p-3.5 w-10 text-right">#</th>
                           <th className="p-3.5">Nombre Invitado</th>
                           <th className="p-3.5">Código / Grupo</th>
                           <th className="p-3.5">Cupo</th>
@@ -1594,15 +1616,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <th className="p-3.5">Invitación WhatsApp</th>
                           <th className="p-3.5">Acompañante</th>
                           <th className="p-3.5">Alergias / Dieta</th>
+                          <th className="p-3.5">Comentarios</th>
                           <th className="p-3.5">Acciones</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#E5CFA3]/60">
-                        {filteredGuests.map((g) => {
+                        {filteredGuests.map((g, idx) => {
                           const hasDietary = g.primaryDietaryRestrictions || g.plusOne?.dietaryRestrictions;
                           const coveringGuest = coverageMap.get(g.id);
                           return (
                             <tr key={g.id} className="hover:bg-[#F7F3EC]/50 transition-colors">
+                              <td className="p-3.5 w-10 text-right font-mono text-[11px] text-[#2A2A2A]/50 tabular-nums">{idx + 1}</td>
                               <td className="p-3.5 font-medium text-[#0F4C3A] font-serif italic text-sm">
                                 <div>{g.primaryName}</div>
                                 {g.email && <div className="text-[10px] text-[#2A2A2A]/60 font-light font-sans">{g.email}</div>}
@@ -1700,6 +1724,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   </div>
                                 ) : (
                                   <span className="text-[#2A2A2A]/40 text-xs">Sin restricciones</span>
+                                )}
+                              </td>
+                              <td className="p-3.5 font-sans max-w-[200px]">
+                                {guestNotes[g.id] ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingGuest(g)}
+                                    title={guestNotes[g.id]}
+                                    className="block w-full text-left text-[11px] text-[#2A2A2A]/80 line-clamp-2 whitespace-pre-line cursor-pointer hover:text-[#0F4C3A]"
+                                  >
+                                    {guestNotes[g.id]}
+                                  </button>
+                                ) : (
+                                  <span className="text-[#2A2A2A]/40">—</span>
                                 )}
                               </td>
                               <td className="p-3.5">
@@ -2931,6 +2969,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     />
                   </div>
                 )}
+
+                <div>
+                  <label className="block text-[10px] uppercase tracking-widest font-medium text-[#B98A2E] mb-1">
+                    Comentarios (privado)
+                  </label>
+                  <textarea
+                    value={editingNote}
+                    onChange={(e) => setEditingNote(e.target.value)}
+                    rows={3}
+                    maxLength={1000}
+                    placeholder="Notas internas de los novios. El invitado no las ve."
+                    className="w-full px-3.5 py-2 bg-white border border-[#E5CFA3] rounded-xl text-xs text-[#0F4C3A] font-medium focus:outline-none resize-y"
+                  />
+                </div>
 
                 {editingGuest.code && (
                   <div className="p-3.5 rounded-2xl bg-white border border-[#E5CFA3] space-y-2">

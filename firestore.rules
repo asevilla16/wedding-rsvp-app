@@ -64,6 +64,12 @@ service cloud.firestore {
       allow update: if isAdmin() || isOwnRsvpUpdate();
     }
 
+    // The couple's private comments about each guest, keyed by guest id. Kept
+    // out of the guest record because guests can read their own record.
+    match /guestNotes/{guestId} {
+      allow read, write: if isAdmin();
+    }
+
     // A guest submitting their RSVP may only change RSVP answers on their own
     // record: not their name, code, seat count, group, table or companion
     // coverage. A companion link set by the couple can be kept or dropped

@@ -253,7 +253,22 @@ async function syncCoverageFor(pin: string, guests: GuestEntry[], companionIds: 
   return await fetchAllGuests(pin);
 }
 
-export async function saveGuest(pin: string, guest: Partial<GuestEntry>): Promise<GuestEntry[]> {
+// The couple's private comments per guest (guestNotes/{guestId}), as a map of
+// guest id -> text. Admin-only; kept off the guest record so guests can't read
+// them through their own invitation.
+export async function fetchGuestNotes(): Promise<Record<string, string>> {
+  try {
+    const snap = await withTimeout(getDocs(collection(db, 'guestNotes')), 2000);
+    return Object.fromEntries(snap.docs.map((d) => [d.id, (d.data().text as string) || '']));
+  } catch (err) {
+    console.warn('Firestore fetchGuestNotes failed:', err);
+    return {};
+  }
+}
+
+// `note`: the guest's private comment. Pass undefined to leave it unchanged,
+// or an empty string to remove it.
+export async function saveGuest(pin: string, guest: Partial<GuestEntry>, note?: string): Promise<GuestEntry[]> {
   // The invitation code is the guest's document id (see firestore.rules), so a
   // new code means moving the record to a new id.
   const code = (guest.code || generateInviteCode()).trim().toUpperCase();
@@ -290,6 +305,21 @@ export async function saveGuest(pin: string, guest: Partial<GuestEntry>): Promis
 
     const batch = writeBatch(db);
     batch.set(doc(db, 'guests', guestId), newGuestEntry, { merge: previousId === guestId });
+
+    // Comments follow the guest to their new id when the code changes.
+    let finalNote = note;
+    if (previousId && previousId !== guestId) {
+      if (finalNote === undefined) {
+        const oldNote = await withTimeout(getDoc(doc(db, 'guestNotes', previousId)), 2000);
+        finalNote = oldNote.exists() ? (oldNote.data().text as string) : '';
+      }
+      batch.delete(doc(db, 'guestNotes', previousId));
+    }
+    if (finalNote !== undefined) {
+      if (finalNote.trim()) batch.set(doc(db, 'guestNotes', guestId), { text: finalNote.trim() });
+      else batch.delete(doc(db, 'guestNotes', guestId));
+    }
+
     if (previousId && previousId !== guestId) {
       batch.delete(doc(db, 'guests', previousId));
       // Re-point anyone who links this guest as their companion.
@@ -307,6 +337,9 @@ export async function saveGuest(pin: string, guest: Partial<GuestEntry>): Promis
     return await syncCoverageFor(pin, await fetchAllGuests(pin), touched);
   } catch (err) {
     if (err instanceof InviteCodeInUseError) throw err;
+    // Firestore is reachable but refused the write (rules not deployed, or the
+    // session isn't an admin). Falling back would silently drop the change.
+    if ((err as { code?: string })?.code === 'permission-denied') throw err;
     console.warn('Firestore saveGuest failed:', err);
   }
 
@@ -349,6 +382,7 @@ export async function deleteGuest(pin: string, guestId: string): Promise<GuestEn
 
     const batch = writeBatch(db);
     batch.delete(doc(db, 'guests', guestId));
+    batch.delete(doc(db, 'guestNotes', guestId));
     // Anyone bringing this guest as their companion now has an unlinked plus-one.
     const hosts = await withTimeout(
       getDocs(query(collection(db, 'guests'), where('plusOne.guestId', '==', guestId))),

@@ -395,19 +395,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
   const invitations = guests.filter((g) => !coverageMap.has(g.id));
 
-  // Overview Stats
-  const totalInvitedGuests = invitations.reduce((acc, g) => acc + (g.partySizeAllowed || 1), 0);
+  // Overview Stats. All counts are PEOPLE (seats), so Confirmados + Declinados
+  // + Pendientes always adds up to Total Invitados: a pending or declined
+  // invitation counts every seat it has (including a linked companion), and
+  // the unused seat of a confirmed invitation (came without the companion)
+  // counts as declined.
+  const seatsOf = (g: GuestEntry) => g.partySizeAllowed || 1;
+  const peopleComing = (g: GuestEntry) => Math.min(seatsOf(g), 1 + (g.plusOne?.attending ? 1 : 0));
+  const totalInvitedGuests = invitations.reduce((acc, g) => acc + seatsOf(g), 0);
   const attendingGuests = invitations.filter((g) => g.status === 'attending');
-  const totalAttendingCount = attendingGuests.reduce(
-    (acc, g) => acc + 1 + (g.plusOne && g.plusOne.attending ? 1 : 0),
-    0
-  );
-  const declinedGuestsCount = invitations.filter((g) => g.status === 'declined').length;
-  const pendingGuestsCount = invitations.filter((g) => g.status === 'pending').length;
+  const declinedInvitations = invitations.filter((g) => g.status === 'declined');
+  const pendingInvitations = invitations.filter((g) => g.status === 'pending');
+  const totalAttendingCount = attendingGuests.reduce((acc, g) => acc + peopleComing(g), 0);
+  const declinedGuestsCount =
+    declinedInvitations.reduce((acc, g) => acc + seatsOf(g), 0) +
+    attendingGuests.reduce((acc, g) => acc + (seatsOf(g) - peopleComing(g)), 0);
+  const pendingGuestsCount = pendingInvitations.reduce((acc, g) => acc + seatsOf(g), 0);
 
   const rsvpResponsePercentage =
     invitations.length > 0
-      ? Math.round(((invitations.length - pendingGuestsCount) / invitations.length) * 100)
+      ? Math.round(((invitations.length - pendingInvitations.length) / invitations.length) * 100)
       : 0;
 
   // Meal breakdown
@@ -1282,13 +1289,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div className="p-5 rounded-[24px] bg-white border border-[#E5CFA3] shadow-xs">
                       <span className="text-[10px] uppercase font-medium text-rose-600 tracking-wider block">Declinados</span>
                       <span className="text-3xl font-serif text-rose-700 font-medium italic">{declinedGuestsCount}</span>
-                      <span className="text-[10px] text-[#2A2A2A]/60 block mt-1 font-light">Invitaciones declinadas</span>
+                      <span className="text-[10px] text-[#2A2A2A]/60 block mt-1 font-light">{declinedInvitations.length} invitaciones declinadas</span>
                     </div>
 
                     <div className="p-5 rounded-[24px] bg-white border border-[#E5CFA3] shadow-xs">
                       <span className="text-[10px] uppercase font-medium text-amber-700 tracking-wider block">Pendientes</span>
                       <span className="text-3xl font-serif text-amber-700 font-medium italic">{pendingGuestsCount}</span>
-                      <span className="text-[10px] text-[#2A2A2A]/60 block mt-1 font-light">Sin respuesta</span>
+                      <span className="text-[10px] text-[#2A2A2A]/60 block mt-1 font-light">{pendingInvitations.length} invitaciones sin respuesta</span>
                     </div>
                   </div>
 
@@ -1420,6 +1427,108 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             />
                           </div>
                         </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* RSVP RESPONSE RATE (by invitation) */}
+                  <div className="p-6 rounded-[28px] bg-white border border-[#E5CFA3] shadow-xs space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[#E5CFA3]/60 pb-3 gap-2">
+                      <div>
+                        <h4 className="font-serif text-lg text-[#0F4C3A] font-semibold italic flex items-center space-x-2">
+                          <PieChartIcon className="w-5 h-5 text-[#B98A2E]" />
+                          <span>Tasa de Respuesta</span>
+                        </h4>
+                        <p className="text-xs text-[#2A2A2A]/70 font-light mt-0.5">
+                          Invitaciones que ya respondieron (confirmando o declinando) frente a las que aún no
+                        </p>
+                      </div>
+                      <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-[#0F4C3A]/10 text-[#0F4C3A] text-xs font-semibold self-start sm:self-auto">
+                        <Sparkles className="w-3.5 h-3.5 text-[#B98A2E]" />
+                        <span>Total: {invitations.length} invitaciones</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
+                      <div className="md:col-span-7 h-64 w-full relative flex items-center justify-center">
+                        {invitations.length > 0 ? (
+                          <>
+                            <ResponsiveContainer width="100%" height="100%">
+                              <PieChart>
+                                <Pie
+                                  data={[
+                                    { name: 'Respondidas', value: invitations.length - pendingInvitations.length },
+                                    { name: 'Sin responder', value: pendingInvitations.length },
+                                  ]}
+                                  cx="50%"
+                                  cy="50%"
+                                  innerRadius={65}
+                                  outerRadius={95}
+                                  paddingAngle={pendingInvitations.length > 0 && pendingInvitations.length < invitations.length ? 4 : 0}
+                                  startAngle={90}
+                                  endAngle={-270}
+                                  dataKey="value"
+                                >
+                                  <Cell fill="#0F4C3A" stroke="#ffffff" strokeWidth={2} />
+                                  <Cell fill="#D97706" stroke="#ffffff" strokeWidth={2} />
+                                </Pie>
+                                <Tooltip
+                                  contentStyle={{
+                                    backgroundColor: '#0F4C3A',
+                                    borderColor: '#D4AF37',
+                                    borderRadius: '12px',
+                                    color: '#FAFAF7',
+                                    fontSize: '12px',
+                                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)',
+                                  }}
+                                  itemStyle={{ color: '#FAFAF7' }}
+                                  formatter={(value, name) => [`${Number(value ?? 0)} invitaciones`, String(name)]}
+                                />
+                              </PieChart>
+                            </ResponsiveContainer>
+                            {/* Percentage in the middle of the donut */}
+                            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                              <span className="text-3xl font-serif text-[#0F4C3A] font-semibold italic">{rsvpResponsePercentage}%</span>
+                              <span className="text-[10px] uppercase tracking-widest text-[#B98A2E] font-medium">respondido</span>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-center text-xs text-[#2A2A2A]/50 italic">
+                            No hay invitaciones registradas aún para generar el gráfico.
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="md:col-span-5 space-y-3 bg-[#F7F3EC]/80 p-4 rounded-2xl border border-[#E5CFA3] text-xs">
+                        <div className="font-semibold text-[#0F4C3A] uppercase tracking-wider mb-2">Desglose</div>
+                        <div className="flex items-center justify-between">
+                          <span className="flex items-center space-x-2 text-[#0F4C3A] font-medium">
+                            <span className="w-2.5 h-2.5 rounded-full bg-[#0F4C3A]" />
+                            <span>Respondidas</span>
+                          </span>
+                          <span className="font-bold text-[#0F4C3A]">{invitations.length - pendingInvitations.length}</span>
+                        </div>
+                        <div className="pl-4.5 space-y-1 text-[#2A2A2A]/70">
+                          <div className="flex justify-between">
+                            <span>Confirmaron</span>
+                            <span>{attendingGuests.length}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Declinaron</span>
+                            <span>{declinedInvitations.length}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between pt-1 border-t border-[#E5CFA3]/60">
+                          <span className="flex items-center space-x-2 text-amber-800 font-medium">
+                            <span className="w-2.5 h-2.5 rounded-full bg-[#D97706]" />
+                            <span>Sin responder</span>
+                          </span>
+                          <span className="font-bold text-amber-800">{pendingInvitations.length}</span>
+                        </div>
+                        <p className="text-[10px] text-[#2A2A2A]/60 font-light pt-1">
+                          Cuenta invitaciones, no personas: una pareja con un mismo pase cuenta una vez. Los acompañantes
+                          incluidos responden con la invitación de su pareja.
+                        </p>
                       </div>
                     </div>
                   </div>

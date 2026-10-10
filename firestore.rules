@@ -1,35 +1,105 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Wedding details (public read, authenticated or admin write)
+
+    // ---- Who is an admin -------------------------------------------------
+
+    // The couple: signed in with Google using the app owner's address or one
+    // of the partner emails saved in the wedding settings...
+    function isCouple() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && isCoupleEmail(request.auth.token.email.lower());
+    }
+
+    function isCoupleEmail(email) {
+      let w = get(/databases/$(database)/documents/wedding/details).data;
+      return email == 'maestroshifu049@gmail.com'
+        || email == w.get('partner1Email', '').lower()
+        || email == w.get('partner2Email', '').lower();
+    }
+
+    // ...or anyone who unlocked the panel with the PIN. The PIN lives in
+    // private/admin, which no client can read; a PIN login stores what was
+    // typed in adminSessions/{uid} and the rules compare the two here, so the
+    // PIN itself never reaches a browser. Changing the PIN ends old sessions.
+    function hasPinSession() {
+      return request.auth != null
+        && get(/databases/$(database)/documents/adminSessions/$(request.auth.uid)).data.pin
+           == get(/databases/$(database)/documents/private/admin).data.pin;
+    }
+
+    function isAdmin() {
+      return isCouple() || hasPinSession();
+    }
+
+    match /private/{document} {
+      allow read: if false;
+      allow write: if isAdmin();
+    }
+
+    // Creating/refreshing a session only succeeds with the correct PIN.
+    match /adminSessions/{uid} {
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['pin', 'createdAt'])
+        && request.resource.data.pin == get(/databases/$(database)/documents/private/admin).data.pin;
+      allow get, delete: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ---- Data ------------------------------------------------------------
+
+    // Wedding details are public, but only admins can change them. This also
+    // protects the partner emails that isCouple() trusts.
     match /wedding/{document=**} {
       allow read: if true;
-      allow write: if true;
+      allow write: if isAdmin();
     }
 
-    // Guest RSVP records
-    match /guests/{guestId} {
-      allow read: if true;
-      allow write: if true;
+    // Guests. The document id IS the guest's secret invitation code, so a
+    // guest can fetch their own invitation by its code (`get`), but only
+    // admins can list the collection or browse other guests.
+    match /guests/{code} {
+      allow get: if true;
+      allow list, create, delete: if isAdmin();
+      allow update: if isAdmin() || isOwnRsvpUpdate();
     }
 
-    // Guestbook wishes
+    // A guest submitting their RSVP may only change RSVP answers on their own
+    // record: not their name, code, seat count, group, table or companion
+    // coverage. A companion link set by the couple can be kept or dropped
+    // (coming alone / declining), never pointed at someone else.
+    function isOwnRsvpUpdate() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let oldPlusOne = resource.data.get('plusOne', null);
+      let newPlusOne = request.resource.data.get('plusOne', null);
+      let oldLink = oldPlusOne == null ? null : oldPlusOne.get('guestId', null);
+      let newLink = newPlusOne == null ? null : newPlusOne.get('guestId', null);
+      return changed.hasOnly([
+          'status', 'email', 'phone', 'primaryMealOptionId', 'primaryDietaryRestrictions',
+          'plusOne', 'songRequest', 'messageToCouple', 'attendingEvents', 'updatedAt'
+        ])
+        && request.resource.data.status in ['attending', 'declined']
+        && (newLink == oldLink || newLink == null);
+    }
+
+    // Guestbook wishes: anyone can read and post; visitors may only bump the
+    // like counter; editing and deleting is for admins.
     match /wishes/{wishId} {
-      allow read: if true;
-      allow create: if true;
-      allow update, delete: if true;
+      allow read, create: if true;
+      allow update: if isAdmin()
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount']);
+      allow delete: if isAdmin();
     }
 
-    // Photo gallery
+    // Photo gallery: public to view, managed by admins.
     match /photos/{photoId} {
       allow read: if true;
-      allow write: if true;
+      allow write: if isAdmin();
     }
 
-    // Budget & expense line items (couple's panel)
+    // Budget & expense line items: private to admins.
     match /budget/{itemId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if isAdmin();
     }
   }
 }

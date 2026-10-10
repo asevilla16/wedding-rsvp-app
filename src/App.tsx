@@ -50,7 +50,7 @@ export default function App() {
   useEffect(() => {
     loadWeddingData();
 
-    // Check for personalized invitation link in URL params (?code=INV-XXXX)
+    // Check for personalized invitation link in URL params (?code=K7QM2XVP9R)
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code') || params.get('invitado') || params.get('guest');
     if (code) {

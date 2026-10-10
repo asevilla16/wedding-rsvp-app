@@ -1,6 +1,8 @@
 import { WeddingDetails, GuestEntry, GuestbookWish, GalleryPhoto, BudgetItem, InitialDataStore } from '../types';
 import { defaultWeddingData, defaultBudgetItems } from '../data/defaultData';
-import { db, withTimeout, seedFirebaseDataIfEmpty } from '../lib/firebase';
+import { db, withTimeout } from '../lib/firebase';
+import { findCompanionReviews, CompanionReview } from '../lib/guestCoverage';
+import { generateInviteCode } from '../lib/inviteCode';
 import {
   doc,
   getDoc,
@@ -10,11 +12,10 @@ import {
   updateDoc,
   deleteDoc,
   query,
-  orderBy
+  orderBy,
+  where,
+  writeBatch
 } from 'firebase/firestore';
-
-// Run seed check asynchronously
-seedFirebaseDataIfEmpty().catch(() => {});
 
 // Data sources, in priority order:
 //   1. Firebase Firestore (primary, persistent)
@@ -69,39 +70,30 @@ export async function fetchWeddingInfo(): Promise<{ wedding: WeddingDetails; wis
   return { wedding: backup.wedding, wishes: backup.wishes };
 }
 
-export async function searchGuests(queryStr: string): Promise<GuestEntry[]> {
-  const q = queryStr.trim().toLowerCase();
-  if (!q) return [];
-
-  const matches = (guests: GuestEntry[]) =>
-    guests.filter(
-      (g) =>
-        g.primaryName.toLowerCase().includes(q) ||
-        g.code.toLowerCase() === q ||
-        (g.email && g.email.toLowerCase().includes(q))
-    );
+// Loads the single invitation behind a personal link (?code=...). The code is
+// the guest's Firestore document id, and the security rules only allow
+// fetching a guest by that exact id: guests can never list or browse others.
+export async function fetchInvitation(code: string): Promise<GuestEntry | null> {
+  const wanted = code.trim().toUpperCase();
+  if (!wanted) return null;
 
   try {
-    const guestsRef = collection(db, 'guests');
-    const snap = await withTimeout(getDocs(guestsRef), 2000);
-    if (!snap.empty) {
-      return matches(snap.docs.map((d) => ({ id: d.id, ...d.data() } as GuestEntry)));
-    }
+    const snap = await withTimeout(getDoc(doc(db, 'guests', wanted)), 2000);
+    return snap.exists() ? ({ id: snap.id, ...snap.data() } as GuestEntry) : null;
   } catch (err) {
-    console.warn('Firestore search failed, using fallback:', err);
+    console.warn('Firestore invitation lookup failed, using fallback:', err);
   }
 
   try {
-    const res = await fetch(`/api/guests/search?q=${encodeURIComponent(queryStr)}`);
+    const res = await fetch(`/api/guests/search?q=${encodeURIComponent(wanted)}`);
     if (res.ok) {
       const data = await res.json();
-      return data.guests;
+      return data.guests?.[0] ?? null;
     }
   } catch (err) {
-    console.warn('API guest search failed, searching bundled defaults', err);
+    console.warn('API invitation lookup failed', err);
   }
-
-  return matches(freshDefaults().guests);
+  return null;
 }
 
 export async function submitRsvp(rsvpData: {
@@ -122,12 +114,25 @@ export async function submitRsvp(rsvpData: {
 
     if (guestSnap.exists()) {
       const existing = guestSnap.data() as GuestEntry;
+
+      // The admin-assigned companion link lives in Firestore, not in the form:
+      // keep it for as long as the guest still brings a companion, even if they
+      // edit the companion's name. It is dropped when they decline or come alone.
+      // The companion's own record is never touched from here (the rules only
+      // let a guest edit their own RSVP); the admin panel lists the resulting
+      // rename / release for the couple to apply (see findCompanionReviews).
+      const companionId = existing.plusOne?.guestId || null;
+      let plusOne = rsvpData.plusOne !== undefined ? rsvpData.plusOne : existing.plusOne;
+      if (plusOne) {
+        plusOne = { ...plusOne, guestId: plusOne.attending ? companionId : null };
+      }
+
       const updatedGuest: GuestEntry = {
         ...existing,
         status: rsvpData.status,
         primaryMealOptionId: rsvpData.primaryMealOptionId || existing.primaryMealOptionId,
         primaryDietaryRestrictions: rsvpData.primaryDietaryRestrictions ?? existing.primaryDietaryRestrictions,
-        plusOne: rsvpData.plusOne !== undefined ? rsvpData.plusOne : existing.plusOne,
+        plusOne,
         songRequest: rsvpData.songRequest || existing.songRequest,
         messageToCouple: rsvpData.messageToCouple || existing.messageToCouple,
         attendingEvents: rsvpData.attendingEvents || existing.attendingEvents || [],
@@ -207,7 +212,7 @@ export async function fetchAllGuests(pin: string): Promise<GuestEntry[]> {
 
   try {
     const res = await fetch('/api/guests', {
-      headers: { 'x-admin-pin': pin || '1234' },
+      headers: { 'x-admin-pin': pin },
     });
     if (res.ok) {
       const data = await res.json();
@@ -219,13 +224,55 @@ export async function fetchAllGuests(pin: string): Promise<GuestEntry[]> {
   return freshDefaults().guests;
 }
 
+export class InviteCodeInUseError extends Error {
+  constructor() {
+    super('Ese código de invitación ya pertenece a otro invitado.');
+  }
+}
+
+// Applies one companion change from findCompanionReviews to the companion's
+// guest record. Admin-only (the rules reject it for guests).
+export async function applyCompanionReview(review: CompanionReview): Promise<void> {
+  const ref = doc(db, 'guests', review.companion.id);
+  if (review.kind === 'rename') {
+    await withTimeout(updateDoc(ref, { primaryName: review.newName }), 2000);
+  } else {
+    await withTimeout(updateDoc(ref, { coveredByName: review.kind === 'cover' ? review.hostName : null }), 2000);
+  }
+}
+
+// Applies coverage changes ('cover' / 'release') for the given companions.
+// Used after an admin edit, so links the couple sets take effect immediately;
+// changes caused by guests' RSVPs are left for the couple to review.
+async function syncCoverageFor(pin: string, guests: GuestEntry[], companionIds: Set<string>): Promise<GuestEntry[]> {
+  const pending = findCompanionReviews(guests).filter(
+    (r) => r.kind !== 'rename' && companionIds.has(r.companion.id)
+  );
+  if (pending.length === 0) return guests;
+  await Promise.all(pending.map(applyCompanionReview));
+  return await fetchAllGuests(pin);
+}
+
 export async function saveGuest(pin: string, guest: Partial<GuestEntry>): Promise<GuestEntry[]> {
-  const guestId = guest.id || `gst_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+  // The invitation code is the guest's document id (see firestore.rules), so a
+  // new code means moving the record to a new id.
+  const code = (guest.code || generateInviteCode()).trim().toUpperCase();
+  const previousId = guest.id;
+  const guestId = code;
 
   try {
+    const previousSnap = previousId ? await withTimeout(getDoc(doc(db, 'guests', previousId)), 2000) : null;
+    const previous = previousSnap?.exists() ? (previousSnap.data() as GuestEntry) : null;
+
+    if (previousId !== code) {
+      const clash = await withTimeout(getDoc(doc(db, 'guests', code)), 2000);
+      if (clash.exists()) throw new InviteCodeInUseError();
+    }
+
     const newGuestEntry: GuestEntry = {
+      ...(previous || {}),
       id: guestId,
-      code: guest.code || `INV-${Math.floor(1000 + Math.random() * 9000)}`,
+      code,
       primaryName: guest.primaryName || 'Nuevo Invitado',
       email: guest.email || '',
       phone: guest.phone || '',
@@ -241,9 +288,25 @@ export async function saveGuest(pin: string, guest: Partial<GuestEntry>): Promis
       attendingEvents: guest.attendingEvents || [],
     };
 
-    await withTimeout(setDoc(doc(db, 'guests', guestId), newGuestEntry, { merge: true }), 2000);
-    return await fetchAllGuests(pin);
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'guests', guestId), newGuestEntry, { merge: previousId === guestId });
+    if (previousId && previousId !== guestId) {
+      batch.delete(doc(db, 'guests', previousId));
+      // Re-point anyone who links this guest as their companion.
+      const hosts = await withTimeout(
+        getDocs(query(collection(db, 'guests'), where('plusOne.guestId', '==', previousId))),
+        2000
+      );
+      hosts.forEach((h) => batch.update(h.ref, { 'plusOne.guestId': guestId }));
+    }
+    await withTimeout(batch.commit(), 2500);
+
+    const touched = new Set(
+      [guestId, previous?.plusOne?.guestId, newGuestEntry.plusOne?.guestId].filter((id): id is string => !!id)
+    );
+    return await syncCoverageFor(pin, await fetchAllGuests(pin), touched);
   } catch (err) {
+    if (err instanceof InviteCodeInUseError) throw err;
     console.warn('Firestore saveGuest failed:', err);
   }
 
@@ -251,7 +314,7 @@ export async function saveGuest(pin: string, guest: Partial<GuestEntry>): Promis
     const res = await fetch('/api/guests', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin: pin || '1234', guest }),
+      body: JSON.stringify({ pin, guest }),
     });
     if (res.ok) {
       const data = await res.json();
@@ -269,7 +332,7 @@ export async function saveGuest(pin: string, guest: Partial<GuestEntry>): Promis
   } else {
     guests.unshift({
       id: guestId,
-      code: guest.code || `INV-${Math.floor(1000 + Math.random() * 9000)}`,
+      code: guest.code || generateInviteCode(),
       primaryName: guest.primaryName || 'Nuevo Invitado',
       email: guest.email || '',
       partySizeAllowed: guest.partySizeAllowed || 1,
@@ -281,8 +344,21 @@ export async function saveGuest(pin: string, guest: Partial<GuestEntry>): Promis
 
 export async function deleteGuest(pin: string, guestId: string): Promise<GuestEntry[]> {
   try {
-    await withTimeout(deleteDoc(doc(db, 'guests', guestId)), 2000);
-    return await fetchAllGuests(pin);
+    const snap = await withTimeout(getDoc(doc(db, 'guests', guestId)), 2000);
+    const companionId = snap.exists() ? (snap.data() as GuestEntry).plusOne?.guestId : null;
+
+    const batch = writeBatch(db);
+    batch.delete(doc(db, 'guests', guestId));
+    // Anyone bringing this guest as their companion now has an unlinked plus-one.
+    const hosts = await withTimeout(
+      getDocs(query(collection(db, 'guests'), where('plusOne.guestId', '==', guestId))),
+      2000
+    );
+    hosts.forEach((h) => batch.update(h.ref, { 'plusOne.guestId': null }));
+    await withTimeout(batch.commit(), 2500);
+
+    // Release the deleted guest's own companion, if they had one.
+    return await syncCoverageFor(pin, await fetchAllGuests(pin), new Set(companionId ? [companionId] : []));
   } catch (err) {
     console.warn('Firestore deleteGuest failed:', err);
   }
@@ -290,7 +366,7 @@ export async function deleteGuest(pin: string, guestId: string): Promise<GuestEn
   try {
     const res = await fetch(`/api/guests/${guestId}`, {
       method: 'DELETE',
-      headers: { 'x-admin-pin': pin || '1234' },
+      headers: { 'x-admin-pin': pin },
     });
     if (res.ok) {
       const data = await res.json();
@@ -304,7 +380,9 @@ export async function deleteGuest(pin: string, guestId: string): Promise<GuestEn
 }
 
 export async function updateWeddingDetails(pin: string, wedding: Partial<WeddingDetails>): Promise<WeddingDetails> {
-  const mergedWedding: WeddingDetails = { ...freshDefaults().wedding, ...wedding };
+  // The PIN must never be written to the public wedding document; it lives in
+  // private/admin (see changeAdminPin).
+  const { adminPin: _ignored, ...mergedWedding }: WeddingDetails = { ...freshDefaults().wedding, ...wedding };
 
   // 1. Persist to Firestore with timeout
   try {
@@ -319,7 +397,7 @@ export async function updateWeddingDetails(pin: string, wedding: Partial<Wedding
     const res = await fetch('/api/wedding', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin: pin || '1234', wedding: mergedWedding }),
+      body: JSON.stringify({ pin, wedding: mergedWedding }),
     });
     if (res.ok) {
       const data = await res.json();
@@ -409,7 +487,7 @@ export async function saveGalleryPhoto(photo: GalleryPhoto, currentWedding: Wedd
     updatedPhotos = [newPhoto, ...currentPhotos];
   }
 
-  return await updateWeddingDetails(currentWedding.adminPin || '1234', {
+  return await updateWeddingDetails('', {
     ...currentWedding,
     galleryPhotos: updatedPhotos,
   });
@@ -419,7 +497,7 @@ export async function deleteGalleryPhoto(photoId: string, currentWedding: Weddin
   const currentPhotos = currentWedding.galleryPhotos || defaultWeddingData.wedding.galleryPhotos || [];
   const updatedPhotos = currentPhotos.filter((p) => p.id !== photoId);
 
-  return await updateWeddingDetails(currentWedding.adminPin || '1234', {
+  return await updateWeddingDetails('', {
     ...currentWedding,
     galleryPhotos: updatedPhotos,
   });

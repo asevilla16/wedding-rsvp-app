@@ -68,10 +68,22 @@ import {
   fetchBudgetItems,
   saveBudgetItem,
   deleteBudgetItem,
+  applyCompanionReview,
+  InviteCodeInUseError,
 } from '../services/api';
 import { defaultBudgetItems } from '../data/defaultData';
 import { GuestQrModal } from './GuestQrModal';
-import { auth, loginWithGoogle, logoutUser } from '../lib/firebase';
+import {
+  auth,
+  loginWithGoogle,
+  logoutUser,
+  unlockWithPin,
+  hasValidPinSession,
+  changeAdminPin,
+  seedFirebaseDataIfEmpty,
+} from '../lib/firebase';
+import { buildCoverageMap, findCompanionReviews, CompanionReview } from '../lib/guestCoverage';
+import { generateInviteCode, isSecureInviteCode } from '../lib/inviteCode';
 import { onAuthStateChanged, User } from 'firebase/auth';
 
 interface AdminDashboardProps {
@@ -111,6 +123,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   });
   const [pinError, setPinError] = useState('');
   const [showPin, setShowPin] = useState(false);
+  const [newAdminPin, setNewAdminPin] = useState('');
+  const [pinChangeError, setPinChangeError] = useState('');
 
   const [activeTab, setActiveTab] = useState<'overview' | 'guests' | 'budget' | 'photos' | 'messages' | 'catering' | 'dj' | 'settings'>('overview');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -202,8 +216,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Listen to Firebase auth state changes
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      setCurrentUser(firebaseUser);
-      if (firebaseUser && isOpen) {
+      // Anonymous users are PIN sessions, not Google accounts to display.
+      setCurrentUser(firebaseUser && !firebaseUser.isAnonymous ? firebaseUser : null);
+      if (!firebaseUser || !isOpen) return;
+      if (firebaseUser.isAnonymous) {
+        // Restore a PIN session after a reload, if the PIN hasn't changed since.
+        hasValidPinSession().then((valid) => {
+          if (valid) setIsUnlocked(true);
+        });
+      } else {
         validateAndAuthorize(firebaseUser);
       }
     });
@@ -216,6 +237,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setPinInput('');
       setPinError('');
     } else if (isOpen && isUnlocked) {
+      // First-run defaults (wedding details, budget) can only be written by an
+      // admin, so the seed check runs here rather than for every visitor.
+      seedFirebaseDataIfEmpty().catch(() => {});
       loadGuestsData();
       loadBudgetData();
     }
@@ -228,9 +252,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const p2 = (w.partner2Email || '').toLowerCase().trim();
     const ownerEmail = 'maestroshifu049@gmail.com';
 
-    // If no emails are configured in settings yet, or user matches p1, p2, or app owner
+    // Must mirror isCoupleEmail() in firestore.rules, which is what actually
+    // grants access to the data.
     const isAuthorized =
-      (!p1 && !p2) ||
       email === ownerEmail ||
       (p1 && email === p1) ||
       (p2 && email === p2);
@@ -273,9 +297,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }
 
       setPinError(
-        `Autenticación con Google no disponible (${errorDetail || 'Restricción de Firebase/Navegador'}).\n\n💡 Hemos preparado el PIN "1234" para que ingreses directamente.`
+        `Autenticación con Google no disponible (${errorDetail || 'Restricción de Firebase/Navegador'}).\n\nPuedes ingresar con el PIN de los novios.`
       );
-      setPinInput(wedding.adminPin);
       setShowPinFallback(true);
     } finally {
       setAuthLoading(false);
@@ -297,7 +320,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const loadGuestsData = async () => {
     setLoadingGuests(true);
     try {
-      const data = await fetchAllGuests(pinInput || '1234');
+      const data = await fetchAllGuests(pinInput);
       setGuests(data);
     } catch (err: any) {
       // A failure to load the guest list is not an auth failure — keep the
@@ -309,7 +332,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const handleUnlock = (e: React.FormEvent) => {
+  // The PIN is checked by Firestore's security rules, not here: the browser
+  // never knows the real PIN (see unlockWithPin).
+  const handleUnlock = async (e: React.FormEvent) => {
     e.preventDefault();
     setPinError('');
     const input = pinInput.trim();
@@ -317,30 +342,58 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setPinError('Por favor ingresa tu código PIN de acceso.');
       return;
     }
-    const validPin = wedding.adminPin || '1234';
-    if (input === validPin || input === '1234') {
-      setIsUnlocked(true);
-      loadGuestsData();
-    } else {
-      setPinError('PIN incorrecto. Intenta con la contraseña de los novios (por defecto: 1234).');
+    setAuthLoading(true);
+    try {
+      if (await unlockWithPin(input)) {
+        setIsUnlocked(true);
+      } else {
+        setPinError('PIN incorrecto. Intenta de nuevo.');
+      }
+    } catch (err: any) {
+      console.error('PIN unlock error:', err);
+      setPinError(
+        err?.code === 'auth/operation-not-allowed' || err?.code === 'auth/admin-restricted-operation'
+          ? 'El acceso con PIN no está habilitado: activa el proveedor "Anónimo" en Firebase Authentication.'
+          : 'No se pudo verificar el PIN. Revisa tu conexión e inténtalo de nuevo.'
+      );
+    } finally {
+      setAuthLoading(false);
     }
   };
 
   if (!isOpen) return null;
 
+  // Guests covered by a partner's invitation are already counted as that
+  // partner's companion, so every stat below works on invitations only.
+  const coverageMap = buildCoverageMap(guests);
+
+  // Companion changes from guests' RSVPs (rename / no longer bringing them)
+  // that the couple still has to apply to the companion's own record.
+  const companionReviews = findCompanionReviews(guests);
+  const handleApplyReviews = async (reviews: CompanionReview[]) => {
+    try {
+      await Promise.all(reviews.map(applyCompanionReview));
+      await loadGuestsData();
+    } catch (err) {
+      console.error('Error applying companion changes:', err);
+      alert('No se pudo aplicar el cambio. Inténtalo de nuevo.');
+    }
+  };
+  const invitations = guests.filter((g) => !coverageMap.has(g.id));
+
   // Overview Stats
-  const totalInvitedGuests = guests.reduce((acc, g) => acc + (g.partySizeAllowed || 1), 0);
-  const attendingGuests = guests.filter((g) => g.status === 'attending');
+  const totalInvitedGuests = invitations.reduce((acc, g) => acc + (g.partySizeAllowed || 1), 0);
+  const attendingGuests = invitations.filter((g) => g.status === 'attending');
   const totalAttendingCount = attendingGuests.reduce(
     (acc, g) => acc + 1 + (g.plusOne && g.plusOne.attending ? 1 : 0),
     0
   );
-  const declinedGuestsCount = guests.filter((g) => g.status === 'declined').length;
-  const pendingGuestsCount = guests.filter((g) => g.status === 'pending').length;
+  const declinedGuestsCount = invitations.filter((g) => g.status === 'declined').length;
+  const pendingGuestsCount = invitations.filter((g) => g.status === 'pending').length;
 
   const rsvpResponsePercentage =
-    guests.length > 0
-      ? Math.round(((guests.length - pendingGuestsCount) / guests.length) * 100)
+    invitations.length > 0
+      ? Math.round(((invitations.length - pendingGuestsCount) / invitations.length) * 100)
       : 0;
 
   // Meal breakdown
@@ -490,6 +543,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setEditingGuest(null);
     } catch (err) {
       console.error(err);
+      if (err instanceof InviteCodeInUseError) alert(err.message);
     }
   };
 
@@ -536,9 +590,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingSettings(true);
+    setPinChangeError('');
     try {
-      const pinToUse = pinInput || wedding.adminPin || '1234';
-      const updated = await updateWeddingDetails(pinToUse, settingsForm);
+      const nextPin = newAdminPin.trim();
+      if (nextPin) {
+        if (nextPin.length < 8) {
+          setPinChangeError('El PIN debe tener al menos 8 caracteres.');
+          return;
+        }
+        try {
+          await changeAdminPin(nextPin);
+          setNewAdminPin('');
+        } catch (err) {
+          console.error('Error changing PIN:', err);
+          setPinChangeError('No se pudo cambiar el PIN. Inténtalo de nuevo.');
+          return;
+        }
+      }
+      const updated = await updateWeddingDetails(pinInput, settingsForm);
       onWeddingUpdated(updated);
       setSettingsSavedMessage(true);
       setTimeout(() => setSettingsSavedMessage(false), 4000);
@@ -1186,7 +1255,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div className="p-5 rounded-[24px] bg-white border border-[#E5CFA3] shadow-xs">
                       <span className="text-[10px] uppercase font-medium text-[#B98A2E] tracking-wider block">Total Invitados</span>
                       <span className="text-3xl font-serif text-[#0F4C3A] font-medium italic">{totalInvitedGuests}</span>
-                      <span className="text-[10px] text-[#2A2A2A]/60 block mt-1 font-light">{guests.length} invitaciones</span>
+                      <span className="text-[10px] text-[#2A2A2A]/60 block mt-1 font-light">{invitations.length} invitaciones</span>
                     </div>
 
                     <div className="p-5 rounded-[24px] bg-white border border-[#E5CFA3] shadow-xs">
@@ -1441,6 +1510,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         onClick={() =>
                           setEditingGuest({
                             primaryName: '',
+                            code: generateInviteCode(),
                             email: '',
                             partySizeAllowed: 2,
                             status: 'pending',
@@ -1454,6 +1524,69 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </button>
                     </div>
                   </div>
+
+                  {/* Companion changes to review */}
+                  {companionReviews.length > 0 && (
+                    <div className="p-4 rounded-[24px] bg-amber-50/80 border border-amber-200 space-y-3 shadow-xs">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <h4 className="font-serif text-base text-[#0F4C3A] font-medium italic">
+                            Cambios de acompañantes por revisar ({companionReviews.length})
+                          </h4>
+                          <p className="text-[11px] text-[#2A2A2A]/70 font-light">
+                            Los invitados solo pueden modificar su propio RSVP. Aplica aquí los cambios que afectan a su acompañante.
+                          </p>
+                        </div>
+                        {companionReviews.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleApplyReviews(companionReviews)}
+                            className="px-3 py-1.5 rounded-full bg-[#0F4C3A] hover:bg-[#0B3F35] text-white text-[10px] font-medium uppercase tracking-wider cursor-pointer shrink-0"
+                          >
+                            Aplicar todo
+                          </button>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        {companionReviews.map((r) => (
+                          <div
+                            key={`${r.kind}-${r.companion.id}`}
+                            className="p-3 rounded-2xl bg-white border border-amber-200 flex items-center justify-between gap-3 text-xs"
+                          >
+                            <span className="text-[#2A2A2A]/90">
+                              {r.kind === 'rename' && (
+                                <>
+                                  <strong className="text-[#0F4C3A]">{r.host.primaryName}</strong> cambió el nombre de su
+                                  acompañante: "{r.companion.primaryName}" → <strong className="text-[#0F4C3A]">"{r.newName}"</strong>
+                                </>
+                              )}
+                              {r.kind === 'release' && (
+                                <>
+                                  <strong className="text-[#0F4C3A]">{r.formerHostName}</strong> ya no trae a{' '}
+                                  <strong className="text-[#0F4C3A]">{r.companion.primaryName}</strong>. Al aplicar, podrá confirmar con
+                                  su propia invitación.
+                                </>
+                              )}
+                              {r.kind === 'cover' && (
+                                <>
+                                  <strong className="text-[#0F4C3A]">{r.companion.primaryName}</strong> está incluido en la invitación
+                                  de <strong className="text-[#0F4C3A]">{r.hostName}</strong>.
+                                </>
+                              )}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleApplyReviews([r])}
+                              className="px-3 py-1.5 rounded-full bg-white border border-[#E5CFA3] hover:bg-[#F7F3EC] text-[#0F4C3A] text-[10px] font-medium uppercase tracking-wider cursor-pointer shrink-0 flex items-center space-x-1"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span>Aplicar</span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Guests Table */}
                   <div className="rounded-[24px] bg-white border border-[#E5CFA3] overflow-x-auto shadow-xs">
@@ -1473,11 +1606,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <tbody className="divide-y divide-[#E5CFA3]/60">
                         {filteredGuests.map((g) => {
                           const hasDietary = g.primaryDietaryRestrictions || g.plusOne?.dietaryRestrictions;
+                          const coveringGuest = coverageMap.get(g.id);
                           return (
                             <tr key={g.id} className="hover:bg-[#F7F3EC]/50 transition-colors">
                               <td className="p-3.5 font-medium text-[#0F4C3A] font-serif italic text-sm">
                                 <div>{g.primaryName}</div>
                                 {g.email && <div className="text-[10px] text-[#2A2A2A]/60 font-light font-sans">{g.email}</div>}
+                                {coveringGuest && (
+                                  <span className="inline-flex items-center space-x-1 mt-1 px-2 py-0.5 rounded-full bg-[#0F4C3A]/10 border border-[#0F4C3A]/20 text-[#0F4C3A] text-[9px] font-semibold uppercase tracking-wider not-italic font-sans">
+                                    <Heart className="w-2.5 h-2.5 text-[#B98A2E]" />
+                                    <span>Incluido en pase de {coveringGuest.primaryName}</span>
+                                  </span>
+                                )}
                               </td>
                               <td className="p-3.5 font-sans space-y-1">
                                 <div className="text-[#B98A2E] font-mono text-[11px] font-medium">{g.code}</div>
@@ -1485,8 +1625,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   {g.groupCategory || 'General'}
                                 </span>
                               </td>
-                              <td className="p-3.5 font-sans font-light">{g.partySizeAllowed} pers.</td>
+                              <td className="p-3.5 font-sans font-light">{coveringGuest ? '—' : `${g.partySizeAllowed} pers.`}</td>
                               <td className="p-3.5 font-sans">
+                                {coveringGuest ? (
+                                  <span
+                                    className="px-2.5 py-1 rounded-full text-[10px] font-medium uppercase tracking-wider bg-[#F7F3EC] text-[#2A2A2A]/60 border border-[#E5CFA3]"
+                                    title={`Su asistencia se confirma con la invitación de ${coveringGuest.primaryName}`}
+                                  >
+                                    INCLUIDO
+                                  </span>
+                                ) : (
                                 <span
                                   className={`px-2.5 py-1 rounded-full text-[10px] font-medium uppercase tracking-wider ${
                                     g.status === 'attending'
@@ -1498,6 +1646,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 >
                                   {g.status === 'attending' ? 'CONFIRMADO' : g.status === 'declined' ? 'DECLINADO' : 'PENDIENTE'}
                                 </span>
+                                )}
                               </td>
                               <td className="p-3.5 font-sans">
                                 <div className="flex items-center space-x-1.5">
@@ -2349,14 +2498,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </div>
 
                       <div>
-                        <label className="block text-[10px] uppercase tracking-widest font-medium text-[#B98A2E] mb-1">PIN de Respaldo de Emergencia</label>
+                        <label className="block text-[10px] uppercase tracking-widest font-medium text-[#B98A2E] mb-1">Cambiar PIN de Respaldo</label>
                         <input
-                          type="text"
-                          maxLength={10}
-                          value={settingsForm.adminPin || '1234'}
-                          onChange={(e) => setSettingsForm({ ...settingsForm, adminPin: e.target.value })}
+                          type="password"
+                          autoComplete="new-password"
+                          maxLength={64}
+                          value={newAdminPin}
+                          onChange={(e) => setNewAdminPin(e.target.value)}
+                          placeholder="Nuevo PIN (dejar vacío para no cambiarlo)"
                           className="w-full px-3.5 py-2.5 bg-white border border-[#E5CFA3] focus:outline-none focus:ring-1 focus:ring-[#0F4C3A] rounded-xl text-xs font-medium text-[#0F4C3A] font-mono tracking-widest"
                         />
+                        <p className="mt-1 text-[10px] text-[#2A2A2A]/60 font-light">
+                          Por seguridad el PIN actual no se muestra. Usa al menos 8 caracteres; al cambiarlo se cierran
+                          las otras sesiones abiertas con PIN.
+                        </p>
+                        {pinChangeError && <p className="mt-1 text-[10px] text-rose-700 font-medium">{pinChangeError}</p>}
                       </div>
                     </div>
 
@@ -2660,13 +2816,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[10px] uppercase tracking-widest font-medium text-[#B98A2E] mb-1">Código Invitación</label>
-                    <input
-                      type="text"
-                      value={editingGuest.code || ''}
-                      onChange={(e) => setEditingGuest({ ...editingGuest, code: e.target.value })}
-                      placeholder="Ej. FAMILIA-12"
-                      className="w-full px-3.5 py-2 bg-white border border-[#E5CFA3] rounded-xl text-[#0F4C3A] font-medium focus:outline-none"
-                    />
+                    <div className="flex items-center space-x-1.5">
+                      <input
+                        type="text"
+                        value={editingGuest.code || ''}
+                        onChange={(e) => setEditingGuest({ ...editingGuest, code: e.target.value.toUpperCase() })}
+                        placeholder="Se genera automáticamente"
+                        className="w-full min-w-0 px-3.5 py-2 bg-white border border-[#E5CFA3] rounded-xl text-[#0F4C3A] font-mono font-medium focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setEditingGuest({ ...editingGuest, code: generateInviteCode() })}
+                        className="px-2.5 py-2 rounded-xl bg-[#F7F3EC] border border-[#E5CFA3] hover:bg-white text-[#0F4C3A] text-[10px] font-medium uppercase tracking-wider cursor-pointer shrink-0"
+                        title="Generar un código nuevo (el enlace anterior dejará de funcionar)"
+                      >
+                        Nuevo
+                      </button>
+                    </div>
+                    {editingGuest.code && !isSecureInviteCode(editingGuest.code) && (
+                      <p className="mt-1 text-[10px] text-amber-700 font-medium">
+                        Código fácil de adivinar. Usa "Nuevo" para generar uno seguro.
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -2711,8 +2882,41 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 {editingGuest.partySizeAllowed && editingGuest.partySizeAllowed > 1 && (
                   <div className="p-3.5 rounded-2xl bg-white border border-[#E5CFA3] space-y-1.5">
                     <label className="block text-[10px] uppercase tracking-widest font-semibold text-[#B98A2E]">
-                      Nombre del Acompañante (Pase para 2)
+                      Acompañante (Pase para 2)
                     </label>
+                    <select
+                      value={editingGuest.plusOne?.guestId || ''}
+                      onChange={(e) => {
+                        const companion = guests.find((g) => g.id === e.target.value);
+                        setEditingGuest({
+                          ...editingGuest,
+                          plusOne: {
+                            attending: true,
+                            guestId: companion?.id ?? null,
+                            fullName: companion ? companion.primaryName : '',
+                            dietaryRestrictions: editingGuest.plusOne?.dietaryRestrictions || '',
+                          },
+                        });
+                      }}
+                      className="w-full px-3.5 py-2 bg-[#F7F3EC] border border-[#E5CFA3] rounded-xl text-xs text-[#0F4C3A] font-medium focus:outline-none cursor-pointer"
+                    >
+                      <option value="">— Escribir nombre manualmente —</option>
+                      {guests
+                        .filter((g) => g.id !== editingGuest.id)
+                        .sort((a, b) => a.primaryName.localeCompare(b.primaryName, 'es'))
+                        .map((g) => {
+                          const assignedTo = guests.find(
+                            (o) => o.id !== editingGuest.id && o.plusOne?.guestId === g.id
+                          );
+                          return (
+                            <option key={g.id} value={g.id} disabled={!!assignedTo}>
+                              {g.primaryName}
+                              {g.groupCategory ? ` · ${g.groupCategory}` : ''}
+                              {assignedTo ? ` (acompaña a ${assignedTo.primaryName})` : ''}
+                            </option>
+                          );
+                        })}
+                    </select>
                     <input
                       type="text"
                       value={editingGuest.plusOne?.fullName || ''}
@@ -2721,13 +2925,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           ...editingGuest,
                           plusOne: {
                             attending: true,
+                            guestId: null,
                             fullName: e.target.value,
                             dietaryRestrictions: editingGuest.plusOne?.dietaryRestrictions || '',
                           },
                         })
                       }
+                      disabled={!!editingGuest.plusOne?.guestId}
                       placeholder="Nombre del acompañante (los novios pueden pre-asignarlo aquí)"
-                      className="w-full px-3.5 py-2 bg-[#F7F3EC] border border-[#E5CFA3] rounded-xl text-xs text-[#0F4C3A] font-medium focus:outline-none"
+                      className="w-full px-3.5 py-2 bg-[#F7F3EC] border border-[#E5CFA3] rounded-xl text-xs text-[#0F4C3A] font-medium focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
                     />
                   </div>
                 )}

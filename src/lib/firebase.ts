@@ -3,6 +3,7 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInAnonymously,
   signOut,
   onAuthStateChanged,
   User
@@ -19,10 +20,11 @@ import {
   updateDoc,
   deleteDoc,
   orderBy,
-  onSnapshot
+  onSnapshot,
+  limit
 } from 'firebase/firestore';
 import { WeddingDetails, GuestEntry, GuestbookWish, InitialDataStore } from '../types';
-import { defaultWeddingData, defaultBudgetItems, GUEST_SEED_VERSION } from '../data/defaultData';
+import { defaultWeddingData, defaultBudgetItems } from '../data/defaultData';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase with the provisioned Applet configuration
@@ -51,7 +53,57 @@ export async function loginWithGoogle(): Promise<User> {
 }
 
 export async function logoutUser(): Promise<void> {
+  // End a PIN session, if this browser has one, before signing out.
+  const user = auth.currentUser;
+  if (user?.isAnonymous) {
+    await deleteDoc(doc(db, 'adminSessions', user.uid)).catch(() => {});
+  }
   await signOut(auth);
+}
+
+// PIN login. The PIN is never sent to or stored in the browser: we sign in
+// anonymously and record the typed PIN in adminSessions/{uid}. Firestore's
+// rules only accept that write if it matches the PIN in the unreadable
+// private/admin document, so a successful write IS the PIN check.
+export async function unlockWithPin(pin: string): Promise<boolean> {
+  const user = auth.currentUser?.isAnonymous ? auth.currentUser : (await signInAnonymously(auth)).user;
+  try {
+    await setDoc(doc(db, 'adminSessions', user.uid), { pin, createdAt: new Date().toISOString() });
+    return true;
+  } catch (err: any) {
+    if (err?.code === 'permission-denied') return false;
+    throw err;
+  }
+}
+
+// True when this browser holds a PIN session that is still valid (the PIN
+// hasn't been changed since). Used to restore the panel after a reload.
+export async function hasValidPinSession(): Promise<boolean> {
+  const user = auth.currentUser;
+  if (!user?.isAnonymous) return false;
+  try {
+    // The session record only exists if the right PIN was entered at some
+    // point (the rules reject anything else). Checking it explicitly also
+    // means an anonymous sign-in on its own never unlocks the panel, whatever
+    // rules happen to be deployed.
+    const session = await getDoc(doc(db, 'adminSessions', user.uid));
+    if (!session.exists()) return false;
+    // Listing guests is admin-only, so this fails if the PIN has since changed.
+    await getDocs(query(collection(db, 'guests'), limit(1)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Changes the admin PIN. Existing PIN sessions stop working, so the current
+// one (if the panel was unlocked by PIN) is refreshed with the new PIN.
+export async function changeAdminPin(newPin: string): Promise<void> {
+  await setDoc(doc(db, 'private', 'admin'), { pin: newPin });
+  const user = auth.currentUser;
+  if (user?.isAnonymous) {
+    await setDoc(doc(db, 'adminSessions', user.uid), { pin: newPin, createdAt: new Date().toISOString() });
+  }
 }
 
 // Timeout helper to prevent infinite pending promises if offline/unreachable
@@ -64,7 +116,9 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs = 2500): Promise<T
   ]);
 }
 
-// Initialize database with default data if empty
+// Initialize database with default data if empty. Only called from the admin
+// panel once unlocked: the security rules reject these writes for visitors.
+// Guests are never seeded from here (see scripts/seed-guests.ts).
 export async function seedFirebaseDataIfEmpty() {
   try {
     const weddingRef = doc(db, 'wedding', 'details');
@@ -73,35 +127,11 @@ export async function seedFirebaseDataIfEmpty() {
       // Seed wedding details
       await withTimeout(setDoc(weddingRef, defaultWeddingData.wedding), 2000);
 
-      // Seed initial guests
-      for (const guest of defaultWeddingData.guests) {
-        await withTimeout(setDoc(doc(db, 'guests', guest.id), guest), 1000).catch(() => {});
-      }
-
       // Seed initial wishes
       for (const wish of defaultWeddingData.wishes) {
         await withTimeout(setDoc(doc(db, 'wishes', wish.id), wish), 1000).catch(() => {});
       }
       console.log('Firebase seeded with initial wedding data successfully');
-    }
-
-    // Seed the guest list independently, gated by a version marker so that
-    // databases provisioned before the real list was added still receive it.
-    // Only missing ids are written: existing RSVPs are never overwritten, and
-    // guests deleted in the admin panel are not re-created on later loads.
-    const guestSeedRef = doc(db, 'wedding', 'guestSeed');
-    const guestSeedSnap = await withTimeout(getDoc(guestSeedRef), 2000);
-    const seededVersion = guestSeedSnap.exists() ? guestSeedSnap.data().version ?? 0 : 0;
-    if (seededVersion < GUEST_SEED_VERSION) {
-      const guestsSnap = await withTimeout(getDocs(collection(db, 'guests')), 2000);
-      const existingIds = new Set(guestsSnap.docs.map((d) => d.id));
-      for (const guest of defaultWeddingData.guests) {
-        if (!existingIds.has(guest.id)) {
-          await withTimeout(setDoc(doc(db, 'guests', guest.id), guest), 1000).catch(() => {});
-        }
-      }
-      await withTimeout(setDoc(guestSeedRef, { version: GUEST_SEED_VERSION }), 1000);
-      console.log('Firebase seeded with guest list successfully');
     }
 
     // Seed the budget collection independently — existing deployments were

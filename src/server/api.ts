@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { GoogleGenAI } from '@google/genai';
 import { defaultWeddingData } from '../data/defaultData';
+import { generateInviteCode } from '../lib/inviteCode';
 import { InitialDataStore, GuestEntry, GuestbookWish } from '../types';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -46,8 +47,17 @@ function saveStore(store: InitialDataStore) {
   }
 }
 
+// Admin endpoints on this fallback API check the ADMIN_PIN environment
+// variable (set it in Vercel / .env). When it isn't set they are disabled.
+// The PIN is never stored in data/store.json, which is public via /api/wedding.
+function isAdminPin(pin: unknown): boolean {
+  const expected = process.env.ADMIN_PIN;
+  return !!expected && typeof pin === 'string' && pin === expected;
+}
+
 export function createApiApp(): Express {
   const currentStore: InitialDataStore = loadStore();
+  delete currentStore.wedding.adminPin;
   const app = express();
   app.use(express.json());
 
@@ -62,27 +72,24 @@ export function createApiApp(): Express {
   // 2. Update Wedding Details (Admin)
   app.put('/api/wedding', (req, res) => {
     const { pin, wedding } = req.body;
-    if (pin && pin !== currentStore.wedding.adminPin && pin !== '1234') {
+    if (!isAdminPin(pin)) {
       return res.status(401).json({ error: 'Invalid PIN' });
     }
-    currentStore.wedding = { ...currentStore.wedding, ...wedding };
+    const { adminPin: _ignored, ...updates } = wedding || {};
+    currentStore.wedding = { ...currentStore.wedding, ...updates };
     saveStore(currentStore);
     res.json({ success: true, wedding: currentStore.wedding });
   });
 
-  // 3. Search Guest by Name or Code
+  // 3. Look up a single invitation by its exact code. Deliberately no name or
+  // email search, so the guest list can't be browsed from the public site.
   app.get('/api/guests/search', (req, res) => {
     const query = ((req.query.q as string) || '').trim().toLowerCase();
     if (!query) {
       return res.status(400).json({ error: 'Query parameter q is required' });
     }
 
-    const matches = currentStore.guests.filter((g) => {
-      const nameMatch = g.primaryName.toLowerCase().includes(query);
-      const codeMatch = g.code.toLowerCase() === query;
-      const emailMatch = g.email && g.email.toLowerCase().includes(query);
-      return nameMatch || codeMatch || emailMatch;
-    });
+    const matches = currentStore.guests.filter((g) => g.code.toLowerCase() === query).slice(0, 1);
 
     res.json({ guests: matches });
   });
@@ -151,7 +158,7 @@ export function createApiApp(): Express {
   // 5. Get All Guests (Admin View)
   app.get('/api/guests', (req, res) => {
     const pin = (req.headers['x-admin-pin'] as string) || (req.query.pin as string);
-    if (pin !== currentStore.wedding.adminPin) {
+    if (!isAdminPin(pin)) {
       return res.status(401).json({ error: 'Unauthorized. Invalid PIN.' });
     }
     res.json({ guests: currentStore.guests });
@@ -160,7 +167,7 @@ export function createApiApp(): Express {
   // 6. Add or Edit Guest (Admin)
   app.post('/api/guests', (req, res) => {
     const { pin, guest } = req.body;
-    if (pin !== currentStore.wedding.adminPin) {
+    if (!isAdminPin(pin)) {
       return res.status(401).json({ error: 'Unauthorized. Invalid PIN.' });
     }
 
@@ -176,7 +183,7 @@ export function createApiApp(): Express {
     } else {
       const newGuest: GuestEntry = {
         id: `gst_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-        code: guest.code || `INV-${Math.floor(1000 + Math.random() * 9000)}`,
+        code: guest.code || generateInviteCode(),
         primaryName: guest.primaryName,
         email: guest.email || '',
         phone: guest.phone || '',
@@ -194,7 +201,7 @@ export function createApiApp(): Express {
   // 7. Delete Guest (Admin)
   app.delete('/api/guests/:id', (req, res) => {
     const pin = (req.headers['x-admin-pin'] as string) || (req.query.pin as string);
-    if (pin !== currentStore.wedding.adminPin) {
+    if (!isAdminPin(pin)) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 

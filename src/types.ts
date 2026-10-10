@@ -1,5 +1,8 @@
 export interface PlusOneDetails {
   attending: boolean;
+  // Set when the companion is another registered guest. Cleared with null (not
+  // undefined) so merged Firestore writes actually remove the link.
+  guestId?: string | null;
   fullName?: string;
   mealOptionId?: string;
   dietaryRestrictions?: string;
@@ -11,8 +14,8 @@ export interface SongRequest {
 }
 
 export interface GuestEntry {
-  id: string;
-  code: string;
+  id: string; // Firestore document id; always equal to `code`
+  code: string; // secret invitation code, used in the guest's personal link
   primaryName: string;
   email?: string;
   phone?: string;
@@ -27,6 +30,10 @@ export interface GuestEntry {
   updatedAt?: string;
   tableNumber?: string;
   groupCategory?: string;
+  // Name of the guest whose invitation covers this one (they're that guest's
+  // linked companion). Written by the admin panel so the covered guest can see
+  // it from their own record, without being able to read anyone else's.
+  coveredByName?: string | null;
 }
 
 export interface BudgetItem {
@@ -120,7 +127,9 @@ export interface WeddingDetails {
   ourStory: string;
   storyImageUrl?: string;
   rsvpDeadline: string;
-  adminPin: string; // default e.g. "1234"
+  // Legacy: the admin PIN now lives in Firestore's unreadable private/admin
+  // document. Never stored on the public wedding details.
+  adminPin?: string;
   partner1Email?: string; // Groom / Bride 1 Google email
   partner2Email?: string; // Groom / Bride 2 Google email
   allowPlusOnes: boolean;

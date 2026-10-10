@@ -1,79 +1,7 @@
-import { InitialDataStore, BudgetItem, GuestEntry } from '../types';
+import { InitialDataStore, BudgetItem } from '../types';
 
-// Real invitation list: [name, group]. Expanded into pending GuestEntry records
-// below. Bump GUEST_SEED_VERSION after editing so existing Firestore databases
-// pick up the new names (see seedFirebaseDataIfEmpty).
-export const GUEST_SEED_VERSION = 1;
-
-const guestList: [string, string][] = [
-  ['Abuela Emilia', 'La López'],
-  ['Abuela Juanita', 'Copán'],
-  ['Abuelo Tulio', 'Copán'],
-  ['Esposo Karla (Willfredo)', 'La López'],
-  ['Joel', 'La López'],
-  ['Pastor', 'Iglesia'],
-  ['Pastora', 'Iglesia'],
-  ['Tía Jenny', 'La López'],
-  ['Tia Joly', 'La López'],
-  ['Tía Karla', 'La López'],
-  ['Andreita Moradel', 'USA'],
-  ['Gustavo (esposo Kensy)', 'Amigos'],
-  ['Juan Ramon Munguia', 'Pajesito'],
-  ['Marta Rapalo', 'Amigos'],
-  ['Brisshaldy Murillo', 'Aurora'],
-  ['Danny Adolfo Murillo (fitito)', 'Aurora'],
-  ['Emily Mendoza', 'Aurora'],
-  ['Isela Miranda', 'Aurora'],
-  ['Kenneth Chavez', 'Aurora'],
-  ['Michelle Ortez', 'Aurora'],
-  ['Papito Adolfo Murillo', 'Aurora'],
-  ['Tío Fito', 'Aurora'],
-  ['Anthon Noriega', 'Pajesito'],
-  ['Chelito', 'Suncery'],
-  ['Magda', 'Suncery'],
-  ['Doris Miranda', 'Suncery'],
-  ['Eren Garcia', 'Pajesito'],
-  ['Hilary', 'Suncery'],
-  ['Krizzia Munguia', 'Casa'],
-  ['Mario Quijada', 'Casa'],
-  ['Tía Wendy', 'Suncery'],
-  ['Tío Cute', 'Suncery'],
-  ['Kensy Ayala', 'Amigos'],
-  ['Daniel Garcia', 'USA'],
-  ['Erick Omar', 'USA'],
-  ['Gadi Orellana', 'Amigos'],
-  ['Rachel', 'USA'],
-  ['Sandra Castellon', 'Amigos'],
-  ['Tía Cinthia', 'USA'],
-  ['Tío Dennys', 'USA'],
-  ['Alexander Martinez', 'Amigos'],
-  ['Carlitos Fuentes', 'Amigos'],
-  ['Dashyanara', 'USA'],
-  ['Dennis Javier', 'USA'],
-  ['Ezequiel Banegas', 'Amigos'],
-  ['Liz Pupo', 'USA'],
-  ['Odalis Chavez', 'USA'],
-  ['Sra. Iris Hernandez', 'Amigos'],
-  ['Tío Danilo', 'USA'],
-  ['Diana Hernandez', 'Amigos'],
-  ['Jeanca Elvir', 'Amigos'],
-  ['Karen Perez', 'Amigos'],
-  ['Luis Bernard', 'Amigos'],
-  ['Marly Rapalo', 'Amigos'],
-  ['Michael (primo)', 'La López'],
-  ['Nadia Reyes', 'Amigos'],
-];
-
-const seededGuests: GuestEntry[] = guestList.map(([primaryName, groupCategory], i) => ({
-  id: `gst_list_${i + 1}`,
-  code: `INV-${1001 + i}`,
-  primaryName,
-  partySizeAllowed: 1,
-  status: 'pending',
-  attendingEvents: [],
-  groupCategory,
-}));
-
+// The guest list is deliberately NOT here: this file is bundled into the public
+// site. Guests live only in Firestore (seeded from scripts/guestList.ts).
 export const defaultWeddingData: InitialDataStore = {
   wedding: {
     coupleNames: "Angel Sevilla & Krister Chavez",
@@ -88,7 +16,6 @@ export const defaultWeddingData: InitialDataStore = {
     ourStory: "Dos personas, una misma sonrisa. Con mucha ilusión en el corazón, queremos invitarte a acompañarnos en el día en que unamos nuestras vidas. Tu presencia, tu cariño y tus buenos deseos harán de esta celebración un recuerdo aún más hermoso.",
     storyImageUrl: "https://images.unsplash.com/photo-1583939003579-730e3918a45a?auto=format&fit=crop&w=1200&q=80",
     rsvpDeadline: "2026-10-01",
-    adminPin: "1234",
     partner1Email: "maestroshifu049@gmail.com",
     partner2Email: "",
     allowPlusOnes: true,
@@ -264,61 +191,7 @@ export const defaultWeddingData: InitialDataStore = {
       }
     ]
   },
-  guests: [
-    {
-      id: "gst_1",
-      code: "ANGEL-101",
-      primaryName: "Elena Rostova",
-      email: "elena.rostova@example.com",
-      phone: "(55) 5555-0192",
-      partySizeAllowed: 2,
-      status: "attending",
-      attendingEvents: ["sch_1", "sch_2", "sch_3", "sch_4"],
-      primaryMealOptionId: "meal_beef",
-      primaryDietaryRestrictions: "Sin gluten",
-      plusOne: {
-        attending: true,
-        fullName: "Dmitri Rostova",
-        mealOptionId: "meal_fish",
-        dietaryRestrictions: "Ninguna"
-      },
-      songRequest: {
-        title: "At Last",
-        artist: "Etta James"
-      },
-      messageToCouple: "¡Estamos inmensamente felices por ustedes! Nos vemos en Angeli Gardens para brindar juntos.",
-      updatedAt: "2026-07-12T14:30:00Z",
-      tableNumber: "Mesa 4",
-      groupCategory: "Familia Novia"
-    },
-    {
-      id: "gst_2",
-      code: "KRISTER-102",
-      primaryName: "Marcus Vance",
-      email: "marcus.vance@example.com",
-      phone: "(55) 5555-8831",
-      partySizeAllowed: 2,
-      status: "attending",
-      attendingEvents: ["sch_1", "sch_2", "sch_3", "sch_4"],
-      primaryMealOptionId: "meal_veg",
-      primaryDietaryRestrictions: "Vegetariano",
-      plusOne: {
-        attending: true,
-        fullName: "Sarah Vance",
-        mealOptionId: "meal_veg",
-        dietaryRestrictions: "Vegetariana"
-      },
-      songRequest: {
-        title: "September",
-        artist: "Earth, Wind & Fire"
-      },
-      messageToCouple: "¡Muchas felicidades Angel y Krister! ¡Listos para la pista de baile!",
-      updatedAt: "2026-07-14T10:15:00Z",
-      tableNumber: "Mesa 2",
-      groupCategory: "Amigos Novio"
-    },
-    ...seededGuests
-  ],
+  guests: [],
   wishes: [
     {
       id: "wsh_1",

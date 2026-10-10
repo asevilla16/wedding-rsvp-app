@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { X, Search, CheckCircle2, Heart, Calendar, ArrowRight, AlertCircle, Sparkles, Download, Music, QrCode } from 'lucide-react';
+import { X, CheckCircle2, Heart, Calendar, AlertCircle, Sparkles, Download, Music, QrCode } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import confetti from 'canvas-confetti';
 import { WeddingDetails, GuestEntry } from '../types';
-import { searchGuests, submitRsvp } from '../services/api';
+import { fetchInvitation, submitRsvp } from '../services/api';
 
 interface RsvpModalProps {
   wedding: WeddingDetails;
@@ -14,31 +14,36 @@ interface RsvpModalProps {
 }
 
 export const RsvpModal: React.FC<RsvpModalProps> = ({ wedding, isOpen, initialCode, onClose, onRsvpSuccess }) => {
-  const [step, setStep] = useState<'search' | 'form' | 'success'>('search');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<GuestEntry[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [searchDone, setSearchDone] = useState(false);
+  const [step, setStep] = useState<'lookup' | 'form' | 'success'>('lookup');
+  // Outcome of loading the invitation behind the personal link. Guests can only
+  // RSVP through their link; there is no search, so other guests stay private.
+  const [lookup, setLookup] = useState<'loading' | 'no-link' | 'not-found' | 'error' | 'covered'>('loading');
+  const [coveredInvitation, setCoveredInvitation] = useState<GuestEntry | null>(null);
 
-  // Auto-search guest if opened with initialCode
   React.useEffect(() => {
-    if (isOpen && initialCode) {
-      setSearching(true);
-      searchGuests(initialCode)
-        .then((results) => {
-          if (results && results.length > 0) {
-            selectGuestToRsvp(results[0]);
-          } else {
-            setSearchQuery(initialCode);
-            setSearchDone(true);
-          }
-        })
-        .catch((err) => {
-          console.error('Error auto-searching guest:', err);
-          setSearchQuery(initialCode);
-        })
-        .finally(() => setSearching(false));
+    if (!isOpen) return;
+    setStep('lookup');
+    if (!initialCode) {
+      setLookup('no-link');
+      return;
     }
+    setLookup('loading');
+    fetchInvitation(initialCode)
+      .then((invitation) => {
+        if (!invitation) {
+          setLookup('not-found');
+        } else if (invitation.coveredByName) {
+          // Covered by a partner's invitation: show the notice, not the form.
+          setCoveredInvitation(invitation);
+          setLookup('covered');
+        } else {
+          selectGuestToRsvp(invitation);
+        }
+      })
+      .catch((err) => {
+        console.error('Error loading invitation:', err);
+        setLookup('error');
+      });
   }, [isOpen, initialCode]);
 
   // Active Guest Form State
@@ -96,23 +101,6 @@ export const RsvpModal: React.FC<RsvpModalProps> = ({ wedding, isOpen, initialCo
     }, 250);
   };
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!searchQuery.trim()) return;
-    setSearching(true);
-    setErrorMessage(null);
-    try {
-      const results = await searchGuests(searchQuery.trim());
-      setSearchResults(results);
-      setSearchDone(true);
-    } catch (err) {
-      console.error(err);
-      setErrorMessage('La búsqueda falló. Inténtalo de nuevo.');
-    } finally {
-      setSearching(false);
-    }
-  };
-
   const selectGuestToRsvp = (guest: GuestEntry) => {
     setSelectedGuest(guest);
     setStatus(guest.status === 'declined' ? 'declined' : 'attending');
@@ -145,18 +133,6 @@ export const RsvpModal: React.FC<RsvpModalProps> = ({ wedding, isOpen, initialCo
     }
 
     setStep('form');
-  };
-
-  const createNewGuestAndSelect = () => {
-    const newGuest: GuestEntry = {
-      id: `gst_new_${Date.now()}`,
-      code: `GUEST-${Math.floor(1000 + Math.random() * 9000)}`,
-      primaryName: searchQuery.trim() || 'Invitado Especial',
-      email: '',
-      partySizeAllowed: 2,
-      status: 'pending',
-    };
-    selectGuestToRsvp(newGuest);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -269,92 +245,45 @@ export const RsvpModal: React.FC<RsvpModalProps> = ({ wedding, isOpen, initialCo
 
         {/* Modal Body */}
         <div className="p-6 sm:p-8 max-h-[75vh] overflow-y-auto">
-          {/* STEP 1: GUEST SEARCH */}
-          {step === 'search' && (
-            <div className="space-y-6">
-              <div className="text-center max-w-md mx-auto">
-                <h4 className="font-serif text-2xl text-[#0F4C3A] font-medium italic mb-2">Busca tu Invitación</h4>
-                <p className="text-xs text-[#2A2A2A]/80 font-light font-sans">
-                  Por favor ingresa tu nombre completo o el de tu familia como aparece en la invitación.
-                </p>
-              </div>
+          {/* STEP 1: LOAD INVITATION FROM PERSONAL LINK */}
+          {step === 'lookup' && (
+            <div className="py-6 text-center max-w-md mx-auto space-y-4">
+              {lookup === 'loading' && (
+                <>
+                  <Sparkles className="w-8 h-8 text-[#B98A2E] mx-auto animate-pulse" />
+                  <p className="text-sm text-[#2A2A2A]/80 font-light font-sans">Buscando tu invitación...</p>
+                </>
+              )}
 
-              <form onSubmit={handleSearch} className="space-y-4">
-                <div className="relative">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#B98A2E]" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Ej. María Elena o FAMILIA-101"
-                    className="w-full pl-12 pr-32 py-3.5 bg-white border border-[#E5CFA3] focus:outline-none focus:ring-1 focus:ring-[#0F4C3A] rounded-full text-sm text-[#0F4C3A] placeholder-[#2A2A2A]/40 transition-all shadow-xs font-sans"
-                  />
-                  <button
-                    type="submit"
-                    disabled={searching || !searchQuery.trim()}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 px-5 py-2 bg-[#0F4C3A] hover:bg-[#0B3F35] disabled:opacity-50 text-white font-medium text-xs uppercase tracking-wider rounded-full transition-all cursor-pointer shadow-sm border border-[#B98A2E]/40"
-                  >
-                    {searching ? '...' : 'Buscar'}
-                  </button>
-                </div>
-              </form>
+              {lookup === 'covered' && coveredInvitation && (
+                <>
+                  <Heart className="w-8 h-8 text-[#B98A2E] fill-[#B98A2E]/20 mx-auto" />
+                  <h4 className="font-serif text-2xl text-[#0F4C3A] font-medium italic">
+                    ¡Hola, {coveredInvitation.primaryName}!
+                  </h4>
+                  <p className="text-sm text-[#2A2A2A]/80 font-light font-sans leading-relaxed">
+                    Tu asistencia está incluida en la invitación de{' '}
+                    <span className="text-[#0F4C3A] font-medium">{coveredInvitation.coveredByName}</span>, así que no
+                    necesitas confirmar por separado. ¡Te esperamos!
+                  </p>
+                </>
+              )}
 
-              {/* Search Results */}
-              {searchDone && (
-                <div className="space-y-3 pt-2">
-                  <p className="text-[10px] uppercase tracking-widest font-medium text-[#B98A2E]">Coincidencias ({searchResults.length})</p>
-                  {searchResults.length > 0 ? (
-                    <div className="space-y-2">
-                      {searchResults.map((guest) => (
-                        <div
-                          key={guest.id}
-                          className="p-4 rounded-[20px] bg-white border border-[#E5CFA3] hover:bg-white/90 flex items-center justify-between transition-all group shadow-xs"
-                        >
-                          <div>
-                            <div className="flex items-center space-x-2">
-                              <h5 className="font-serif text-base text-[#0F4C3A] font-medium italic">{guest.primaryName}</h5>
-                              <span className="px-2.5 py-0.5 rounded-full bg-[#F7F3EC] border border-[#E5CFA3] text-[10px] text-[#B98A2E] font-medium uppercase tracking-wider">
-                                {guest.partySizeAllowed} Persona{guest.partySizeAllowed > 1 ? 's' : ''}
-                              </span>
-                            </div>
-                            <p className="text-xs text-[#2A2A2A]/70 mt-0.5 font-light font-sans">
-                              Estado:{' '}
-                              <span
-                                className={
-                                  guest.status === 'attending'
-                                    ? 'text-[#0F4C3A] font-medium'
-                                    : guest.status === 'declined'
-                                    ? 'text-rose-600 font-medium'
-                                    : 'text-[#B98A2E] font-medium'
-                                }
-                              >
-                                {guest.status === 'attending' ? 'CONFIRMADO' : guest.status === 'declined' ? 'DECLINADO' : 'PENDIENTE'}
-                              </span>
-                            </p>
-                          </div>
-
-                          <button
-                            onClick={() => selectGuestToRsvp(guest)}
-                            className="px-4 py-2 rounded-full bg-[#0F4C3A] text-white text-xs font-medium uppercase tracking-wider transition-all flex items-center space-x-1 cursor-pointer hover:bg-[#0B3F35] shadow-xs border border-[#B98A2E]/40"
-                          >
-                            <span>RSVP</span>
-                            <ArrowRight className="w-3.5 h-3.5 text-[#D9B872]" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="p-5 rounded-[24px] bg-white border border-dashed border-[#E5CFA3] text-center space-y-3">
-                      <p className="text-sm text-[#2A2A2A]/80 font-light font-sans">No se encontró registro para "{searchQuery}"</p>
-                      <button
-                        onClick={createNewGuestAndSelect}
-                        className="px-4 py-2 rounded-full bg-white border border-[#E5CFA3] text-[#0F4C3A] hover:bg-[#F7F3EC] text-xs font-medium uppercase tracking-wider transition-all cursor-pointer shadow-2xs"
-                      >
-                        Confirmar RSVP como "{searchQuery}"
-                      </button>
-                    </div>
-                  )}
-                </div>
+              {(lookup === 'no-link' || lookup === 'not-found' || lookup === 'error') && (
+                <>
+                  <AlertCircle className="w-8 h-8 text-[#B98A2E] mx-auto" />
+                  <h4 className="font-serif text-2xl text-[#0F4C3A] font-medium italic">
+                    {lookup === 'no-link' ? 'Usa tu enlace personal' : 'No encontramos tu invitación'}
+                  </h4>
+                  <p className="text-sm text-[#2A2A2A]/80 font-light font-sans leading-relaxed">
+                    {lookup === 'no-link' &&
+                      'Para confirmar tu asistencia, abre el enlace personal que te enviamos junto con tu invitación.'}
+                    {lookup === 'not-found' &&
+                      'El enlace que usaste no parece ser válido. Por favor verifica que lo abriste completo o escríbenos para ayudarte.'}
+                    {lookup === 'error' &&
+                      'Hubo un problema al cargar tu invitación. Por favor revisa tu conexión e inténtalo de nuevo.'}
+                  </p>
+                </>
               )}
             </div>
           )}
@@ -367,13 +296,6 @@ export const RsvpModal: React.FC<RsvpModalProps> = ({ wedding, isOpen, initialCo
                   <span className="text-[10px] uppercase tracking-widest font-medium text-[#B98A2E] block">Confirmación para</span>
                   <h4 className="font-serif text-2xl text-[#0F4C3A] font-medium italic">{selectedGuest.primaryName}</h4>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setStep('search')}
-                  className="text-xs text-[#B98A2E] hover:text-[#0F4C3A] underline font-medium uppercase tracking-wider cursor-pointer"
-                >
-                  Cambiar
-                </button>
               </div>
 
               {/* Attendance Choice */}
@@ -428,7 +350,7 @@ export const RsvpModal: React.FC<RsvpModalProps> = ({ wedding, isOpen, initialCo
                     type="tel"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+52 55 0000 0000"
+                    placeholder="+504 9966 6969"
                     className="w-full px-4 py-2.5 bg-white border border-[#E5CFA3] focus:outline-none focus:ring-1 focus:ring-[#0F4C3A] rounded-xl text-sm font-medium text-[#0F4C3A] placeholder-[#2A2A2A]/40 font-sans"
                   />
                 </div>
@@ -617,10 +539,10 @@ export const RsvpModal: React.FC<RsvpModalProps> = ({ wedding, isOpen, initialCo
               <div className="pt-2 flex items-center justify-end space-x-3">
                 <button
                   type="button"
-                  onClick={() => setStep('search')}
+                  onClick={onClose}
                   className="px-5 py-2.5 rounded-full text-xs font-medium uppercase tracking-wider text-[#2A2A2A]/70 hover:text-[#0F4C3A] cursor-pointer"
                 >
-                  Atrás
+                  Cancelar
                 </button>
                 <button
                   type="submit"
@@ -654,7 +576,7 @@ export const RsvpModal: React.FC<RsvpModalProps> = ({ wedding, isOpen, initialCo
               {/* Firebase Confirmation Badge */}
               <div className="p-3 rounded-2xl bg-[#0F4C3A]/10 border border-[#0F4C3A]/30 text-[#0F4C3A] text-xs font-medium flex items-center justify-center space-x-2 max-w-md mx-auto">
                 <CheckCircle2 className="w-4 h-4 text-[#0F4C3A]" />
-                <span>Reserva guardada exitosamente en la base de datos (Firebase)</span>
+                <span>Reserva guardada exitosamente en la base de datos</span>
               </div>
 
               {/* Summary Card */}

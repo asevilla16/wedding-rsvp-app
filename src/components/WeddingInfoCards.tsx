@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Calendar, Check, Download, ExternalLink, Heart, Sparkles } from 'lucide-react';
+import { parseWeddingDate, toCalendarStamp } from '../lib/weddingDate';
 
 interface WeddingInfoCardsProps {
   weddingDate?: string;
@@ -8,7 +9,7 @@ interface WeddingInfoCardsProps {
 }
 
 export const WeddingInfoCards: React.FC<WeddingInfoCardsProps> = ({
-  weddingDate = "2026-11-14T17:00:00",
+  weddingDate = "2026-12-04T17:00:00",
   weddingLocation = "Angeli Gardens, San Pedro Sula, Honduras",
   coupleNames = "Angel & Krister",
 }) => {
@@ -21,8 +22,11 @@ export const WeddingInfoCards: React.FC<WeddingInfoCardsProps> = ({
       `¡Acompáñanos a celebrar la boda de ${coupleNames}! Lugar: ${weddingLocation}`
     );
     const eventLocation = encodeURIComponent(weddingLocation);
-    // 14 de Noviembre 2026, 17:00 GMT-6 (San Pedro Sula) -> 23:00 UTC
-    const gCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${eventTitle}&dates=20261114T230000Z/20261115T060000Z&details=${eventDetails}&location=${eventLocation}`;
+    // From the saved wedding date (venue time, San Pedro Sula); 7 hours long.
+    const start = parseWeddingDate(weddingDate);
+    const end = new Date(start.getTime() + 7 * 3600 * 1000);
+    const dates = `${toCalendarStamp(start)}/${toCalendarStamp(end)}`;
+    const gCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${eventTitle}&dates=${dates}&details=${eventDetails}&location=${eventLocation}`;
 
     window.open(gCalUrl, '_blank', 'noopener,noreferrer');
 
@@ -35,8 +39,8 @@ export const WeddingInfoCards: React.FC<WeddingInfoCardsProps> = ({
       'SUMMARY:Boda de ' + coupleNames,
       'DESCRIPTION:¡Acompáñanos a celebrar la boda de ' + coupleNames + '!',
       'LOCATION:' + weddingLocation,
-      'DTSTART:20261114T230000Z',
-      'DTEND:20261115T060000Z',
+      'DTSTART:' + toCalendarStamp(start),
+      'DTEND:' + toCalendarStamp(end),
       'STATUS:CONFIRMED',
       'END:VEVENT',
       'END:VCALENDAR',

@@ -5,6 +5,7 @@ import confetti from 'canvas-confetti';
 import { WeddingDetails, GuestEntry } from '../types';
 import { fetchInvitation, submitRsvp } from '../services/api';
 import { getInviteUrl } from '../lib/inviteCode';
+import { parseWeddingDate, formatWeddingDate, toCalendarStamp } from '../lib/weddingDate';
 
 interface RsvpModalProps {
   wedding: WeddingDetails;
@@ -184,19 +185,17 @@ export const RsvpModal: React.FC<RsvpModalProps> = ({ wedding, isOpen, initialCo
     const details = encodeURIComponent(`¡Te esperamos para celebrar en ${wedding.weddingLocation}!`);
     const location = encodeURIComponent(wedding.venueAddress);
 
-    const startDate = new Date(wedding.weddingDate);
+    const startDate = parseWeddingDate(wedding.weddingDate);
     const endDate = new Date(startDate.getTime() + 8 * 3600 * 1000);
 
-    const formatCalDate = (d: Date) => d.toISOString().replace(/-|:|\.\d\d\d/g, '');
 
-    return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${formatCalDate(startDate)}/${formatCalDate(endDate)}&details=${details}&location=${location}`;
+    return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${toCalendarStamp(startDate)}/${toCalendarStamp(endDate)}&details=${details}&location=${location}`;
   };
 
   const downloadIcsFile = () => {
-    const startDate = new Date(wedding.weddingDate);
+    const startDate = parseWeddingDate(wedding.weddingDate);
     const endDate = new Date(startDate.getTime() + 8 * 3600 * 1000);
 
-    const formatIcsDate = (d: Date) => d.toISOString().replace(/-|:|\.\d\d\d/g, '');
 
     const icsData = [
       'BEGIN:VCALENDAR',
@@ -206,8 +205,8 @@ export const RsvpModal: React.FC<RsvpModalProps> = ({ wedding, isOpen, initialCo
       `SUMMARY:Boda de ${wedding.coupleNames}`,
       `DESCRIPTION:Celebración en ${wedding.weddingLocation}`,
       `LOCATION:${wedding.venueAddress}`,
-      `DTSTART:${formatIcsDate(startDate)}`,
-      `DTEND:${formatIcsDate(endDate)}`,
+      `DTSTART:${toCalendarStamp(startDate)}`,
+      `DTEND:${toCalendarStamp(endDate)}`,
       'END:VEVENT',
       'END:VCALENDAR',
     ].join('\r\n');
@@ -597,7 +596,7 @@ export const RsvpModal: React.FC<RsvpModalProps> = ({ wedding, isOpen, initialCo
                   )}
 
                   <div className="text-[#2A2A2A]/80 font-sans">
-                    <strong>Fecha y Lugar:</strong> 18 de Octubre, 2026 en Angeli Gardens
+                    <strong>Fecha y Lugar:</strong> {formatWeddingDate(wedding.weddingDate)} en {wedding.weddingLocation}
                   </div>
 
                   {songTitle && (

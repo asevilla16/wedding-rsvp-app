@@ -7,7 +7,7 @@ export const defaultWeddingData: InitialDataStore = {
     coupleNames: "Angel Sevilla & Krister Chavez",
     partner1Name: "Angel Sevilla",
     partner2Name: "Krister Munguia",
-    weddingDate: "2026-11-04T17:00:00",
+    weddingDate: "2026-12-04T17:00:00",
     weddingLocation: "Angeli Gardens, San Pedro Sula",
     venueAddress: "Angeli Gardens, Col. Las Mesetas, San Pedro Sula, Honduras",
     venueMapUrl: "https://maps.app.goo.gl/cfh3eQzKUS3Mp25i7",

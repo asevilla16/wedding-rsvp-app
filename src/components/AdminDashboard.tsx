@@ -2808,7 +2808,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* ADD / EDIT BUDGET ITEM MODAL */}
         {isBudgetModalOpen && editingBudgetItem && (
           <div className="fixed inset-0 z-50 bg-[#0B3F35]/40 backdrop-blur-md flex items-center justify-center p-4">
-            <div className="w-full max-w-md bg-[#F7F3EC] border border-[#E5CFA3] rounded-[32px] p-6 text-[#2A2A2A] shadow-2xl relative space-y-4 font-sans text-left">
+            <div className="w-full max-w-md bg-[#F7F3EC] border border-[#E5CFA3] rounded-[32px] p-6 text-[#2A2A2A] shadow-2xl relative space-y-4 font-sans max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain text-left">
               <div className="flex items-center justify-between pb-2 border-b border-[#E5CFA3]">
                 <h3 className="font-serif text-xl text-[#0F4C3A] font-medium italic flex items-center space-x-2">
                   <Wallet className="w-5 h-5 text-[#B98A2E]" />
@@ -2954,7 +2954,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* ADD / EDIT GUEST MODAL */}
         {editingGuest && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0B3F35]/40 backdrop-blur-md">
-            <div className="w-full max-w-md bg-[#F7F3EC] border border-[#E5CFA3] rounded-[32px] p-6 text-[#2A2A2A] shadow-2xl relative space-y-4 font-sans">
+            <div className="w-full max-w-md bg-[#F7F3EC] border border-[#E5CFA3] rounded-[32px] p-6 text-[#2A2A2A] shadow-2xl relative space-y-4 font-sans max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain">
               <h3 className="font-serif text-2xl text-[#0F4C3A] font-medium italic">
                 {editingGuest.id ? 'Editar Invitado' : 'Agregar Nuevo Invitado'}
               </h3>
@@ -3189,7 +3189,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* ADD / EDIT PHOTO MODAL */}
         {photoModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0B3F35]/40 backdrop-blur-md animate-in fade-in">
-            <div className="w-full max-w-lg bg-[#F7F3EC] border border-[#E5CFA3] rounded-[32px] p-6 text-[#2A2A2A] shadow-2xl relative space-y-4 font-sans">
+            <div className="w-full max-w-lg bg-[#F7F3EC] border border-[#E5CFA3] rounded-[32px] p-6 text-[#2A2A2A] shadow-2xl relative space-y-4 font-sans max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain">
               <button
                 onClick={() => setPhotoModalOpen(false)}
                 className="absolute top-5 right-5 p-2 text-[#2A2A2A]/50 hover:text-[#0F4C3A] cursor-pointer rounded-full hover:bg-black/5"
@@ -3319,7 +3319,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* ADD WISH / MESSAGE MODAL */}
         {newWishModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0B3F35]/40 backdrop-blur-md animate-in fade-in">
-            <div className="w-full max-w-md bg-[#F7F3EC] border border-[#E5CFA3] rounded-[32px] p-6 text-[#2A2A2A] shadow-2xl relative space-y-4 font-sans">
+            <div className="w-full max-w-md bg-[#F7F3EC] border border-[#E5CFA3] rounded-[32px] p-6 text-[#2A2A2A] shadow-2xl relative space-y-4 font-sans max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain">
               <button
                 onClick={() => setNewWishModalOpen(false)}
                 className="absolute top-5 right-5 p-2 text-[#2A2A2A]/50 hover:text-[#0F4C3A] cursor-pointer rounded-full hover:bg-black/5"

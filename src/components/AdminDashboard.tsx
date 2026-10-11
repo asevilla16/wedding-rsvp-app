@@ -1884,6 +1884,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           );
                         })}
                       </tbody>
+                      {filteredGuests.length > 0 && (() => {
+                        // Totals for the rows shown (respecting search and filters). Cupo
+                        // matches the column: covered companions show "—" because their
+                        // seat is already counted on their partner's invitation.
+                        const coveredShown = filteredGuests.filter((g) => coverageMap.has(g.id)).length;
+                        const seatsShown = filteredGuests
+                          .filter((g) => !coverageMap.has(g.id))
+                          .reduce((acc, g) => acc + (g.partySizeAllowed || 1), 0);
+                        return (
+                          <tfoot className="bg-[#F7F3EC] border-t-2 border-[#E5CFA3] text-[#0F4C3A]">
+                            <tr>
+                              <td className="p-3.5 w-10 text-right font-mono text-[11px] font-bold tabular-nums">
+                                {filteredGuests.length}
+                              </td>
+                              <td className="p-3.5 text-[10px] font-semibold uppercase tracking-widest text-[#B98A2E]" colSpan={2}>
+                                Total invitados
+                              </td>
+                              <td className="p-3.5 font-sans">
+                                <span className="font-bold">{seatsShown} pers.</span>
+                                {coveredShown > 0 && (
+                                  <span className="block text-[10px] text-[#2A2A2A]/60 font-light">
+                                    {coveredShown} incluido{coveredShown > 1 ? 's' : ''} en otro pase
+                                  </span>
+                                )}
+                              </td>
+                              <td colSpan={6} />
+                            </tr>
+                          </tfoot>
+                        );
+                      })()}
                     </table>
                   </div>
                 </div>
@@ -2843,7 +2873,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <input
                       type="number"
                       min={0}
-                      step={100}
+                      step="0.01"
                       value={editingBudgetItem.estimatedCost !== undefined ? editingBudgetItem.estimatedCost : ''}
                       onChange={(e) => setEditingBudgetItem({ ...editingBudgetItem, estimatedCost: Number(e.target.value) })}
                       className="w-full px-3.5 py-2.5 bg-white border border-[#E5CFA3] rounded-xl text-[#0F4C3A] font-medium focus:outline-none"
@@ -2855,7 +2885,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <input
                       type="number"
                       min={0}
-                      step={100}
+                      step="0.01"
                       value={editingBudgetItem.actualCost !== undefined ? editingBudgetItem.actualCost : ''}
                       onChange={(e) => setEditingBudgetItem({ ...editingBudgetItem, actualCost: Number(e.target.value) })}
                       className="w-full px-3.5 py-2.5 bg-white border border-[#E5CFA3] rounded-xl text-[#0F4C3A] font-bold focus:outline-none"
@@ -2869,7 +2899,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <input
                       type="number"
                       min={0}
-                      step={100}
+                      step="0.01"
                       value={editingBudgetItem.paidAmount !== undefined ? editingBudgetItem.paidAmount : ''}
                       onChange={(e) => setEditingBudgetItem({ ...editingBudgetItem, paidAmount: Number(e.target.value) })}
                       className="w-full px-3.5 py-2.5 bg-white border border-[#E5CFA3] rounded-xl text-emerald-800 font-bold focus:outline-none"

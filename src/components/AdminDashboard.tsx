@@ -89,26 +89,12 @@ import {
 import { buildCoverageMap, findCompanionReviews, CompanionReview } from '../lib/guestCoverage';
 import { generateInviteCode, isSecureInviteCode, getInviteUrl } from '../lib/inviteCode';
 
-// The budget chart's tooltip background. Reserved for that: never used as a
-// category color. Tooltip text is always light (see itemStyle), so it stays
-// readable whatever the slice colors are.
-const BUDGET_TOOLTIP_BG = '#0F4C3A';
-
-// Slice colors for the budget-by-category chart (enough for every category).
-const BUDGET_CHART_COLORS = [
-  '#B98A2E', '#1D4ED8', '#B45309', '#BE123C', '#6D28D9',
-  '#0E7490', '#4D7C0F', '#BE185D', '#475569', '#C2410C',
-];
+import { BUDGET_TOOLTIP_BG, BUDGET_CHART_COLORS } from '../admin/helpers/constants';
 
 // Budget amounts are in Honduran Lempiras, e.g. "L 12,500.00".
-const formatLempiras = (amount: number, decimals = 2) =>
-  new Intl.NumberFormat('es-HN', {
-    style: 'currency',
-    currency: 'HNL',
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  }).format(Number(amount) || 0);
+import formatLempiras from '../admin/helpers/formatLempiras';
 import { onAuthStateChanged, User } from 'firebase/auth';
+import sameCategoryName from '../admin/helpers/sameCategoryName';
 
 interface AdminDashboardProps {
   wedding: WeddingDetails;
@@ -185,8 +171,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       console.error('Failed to load budget items:', err);
     }
   };
-
-  const sameCategoryName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
   const handleAddCategory = async () => {
     const name = newCategoryName.trim();

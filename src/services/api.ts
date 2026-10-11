@@ -1,5 +1,5 @@
 import { WeddingDetails, GuestEntry, GuestbookWish, GalleryPhoto, BudgetItem, InitialDataStore } from '../types';
-import { defaultWeddingData, defaultBudgetItems } from '../data/defaultData';
+import { defaultWeddingData, defaultBudgetItems, defaultBudgetCategories } from '../data/defaultData';
 import { db, withTimeout } from '../lib/firebase';
 import { findCompanionReviews, CompanionReview } from '../lib/guestCoverage';
 import { generateInviteCode } from '../lib/inviteCode';
@@ -595,6 +595,9 @@ export async function saveBudgetItem(item: BudgetItem): Promise<BudgetItem[]> {
     await withTimeout(setDoc(doc(db, 'budget', item.id), item, { merge: true }), 2000);
     return await fetchBudgetItems();
   } catch (err) {
+    // Firestore is reachable but refused the write (e.g. the admin session
+    // ended): don't pretend it saved by writing only to this browser's cache.
+    if ((err as { code?: string })?.code === 'permission-denied') throw err;
     console.warn('Firestore saveBudgetItem failed, updating local cache:', err);
   }
 
@@ -612,6 +615,7 @@ export async function deleteBudgetItem(id: string): Promise<BudgetItem[]> {
     await withTimeout(deleteDoc(doc(db, 'budget', id)), 2000);
     return await fetchBudgetItems();
   } catch (err) {
+    if ((err as { code?: string })?.code === 'permission-denied') throw err;
     console.warn('Firestore deleteBudgetItem failed, updating local cache:', err);
   }
 
@@ -619,6 +623,46 @@ export async function deleteBudgetItem(id: string): Promise<BudgetItem[]> {
   const sorted = sortBudgetItems(items.filter((i) => i.id !== id));
   writeBudgetCache(sorted);
   return sorted;
+}
+
+// ---------------------------------------------------------------------------
+// Budget categories, stored in Firestore at budgetSettings/categories as
+// { list: string[] } (admin-only, see firestore.rules).
+// ---------------------------------------------------------------------------
+
+const budgetCategoriesRef = () => doc(db, 'budgetSettings', 'categories');
+
+// Loads the category list. The first time, creates it from the defaults plus
+// any category already used by an expense, so nothing existing goes missing.
+export async function fetchBudgetCategories(existingItems: BudgetItem[] = []): Promise<string[]> {
+  try {
+    const snap = await withTimeout(getDoc(budgetCategoriesRef()), 2000);
+    const list = snap.exists() ? (snap.data().list as string[] | undefined) : undefined;
+    if (Array.isArray(list) && list.length > 0) return list;
+
+    const initial = Array.from(
+      new Set([...defaultBudgetCategories, ...existingItems.map((i) => i.category).filter(Boolean)])
+    );
+    await withTimeout(setDoc(budgetCategoriesRef(), { list: initial }), 2000);
+    return initial;
+  } catch (err) {
+    console.warn('Firestore fetchBudgetCategories failed, using defaults:', err);
+    return [...defaultBudgetCategories];
+  }
+}
+
+export async function saveBudgetCategories(list: string[]): Promise<void> {
+  await withTimeout(setDoc(budgetCategoriesRef(), { list }), 2000);
+}
+
+// Renames a category in the list and moves every expense filed under the old
+// name to the new one, all in one write.
+export async function renameBudgetCategory(oldName: string, newName: string, list: string[]): Promise<void> {
+  const batch = writeBatch(db);
+  batch.set(budgetCategoriesRef(), { list: list.map((c) => (c === oldName ? newName : c)) });
+  const items = await withTimeout(getDocs(query(collection(db, 'budget'), where('category', '==', oldName))), 2000);
+  items.forEach((d) => batch.update(d.ref, { category: newName }));
+  await withTimeout(batch.commit(), 2500);
 }
 
 export async function askAiConcierge(prompt: string, type: 'qa' | 'toast_generator' = 'qa'): Promise<string> {

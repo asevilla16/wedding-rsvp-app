@@ -212,6 +212,20 @@ export const defaultWeddingData: InitialDataStore = {
   ]
 };
 
+// Starting list of budget categories. Only used to create Firestore's
+// budgetSettings/categories document the first time; after that the couple
+// manages the list from the panel.
+export const defaultBudgetCategories: string[] = [
+  'Lugar & Banquetes',
+  'Fotografía & Video',
+  'Música & DJ',
+  'Vestuario & Belleza',
+  'Decoración & Flores',
+  'Invitaciones & Detalles',
+  'Pastelería & Postres',
+  'Otros',
+];
+
 // Bundled fallback for the couple's budget tracker. Used when Firestore is
 // unreachable and no local cache exists. Firestore's `budget` collection is
 // seeded from this list on first run.

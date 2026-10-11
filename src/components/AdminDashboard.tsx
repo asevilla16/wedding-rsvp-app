@@ -71,8 +71,11 @@ import {
   applyCompanionReview,
   InviteCodeInUseError,
   fetchGuestNotes,
+  fetchBudgetCategories,
+  saveBudgetCategories,
+  renameBudgetCategory,
 } from '../services/api';
-import { defaultBudgetItems } from '../data/defaultData';
+import { defaultBudgetItems, defaultBudgetCategories } from '../data/defaultData';
 import { GuestQrModal } from './GuestQrModal';
 import {
   auth,
@@ -85,6 +88,17 @@ import {
 } from '../lib/firebase';
 import { buildCoverageMap, findCompanionReviews, CompanionReview } from '../lib/guestCoverage';
 import { generateInviteCode, isSecureInviteCode, getInviteUrl } from '../lib/inviteCode';
+
+// The budget chart's tooltip background. Reserved for that: never used as a
+// category color. Tooltip text is always light (see itemStyle), so it stays
+// readable whatever the slice colors are.
+const BUDGET_TOOLTIP_BG = '#0F4C3A';
+
+// Slice colors for the budget-by-category chart (enough for every category).
+const BUDGET_CHART_COLORS = [
+  '#B98A2E', '#1D4ED8', '#B45309', '#BE123C', '#6D28D9',
+  '#0E7490', '#4D7C0F', '#BE185D', '#475569', '#C2410C',
+];
 
 // Budget amounts are in Honduran Lempiras, e.g. "L 12,500.00".
 const formatLempiras = (amount: number, decimals = 2) =>
@@ -155,11 +169,80 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
   const [editingBudgetItem, setEditingBudgetItem] = useState<Partial<BudgetItem> | null>(null);
 
+  // Budget categories live in Firestore (budgetSettings/categories) and are
+  // managed from the "Categorías" editor.
+  const [budgetCategories, setBudgetCategories] = useState<string[]>(defaultBudgetCategories);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [categoryDrafts, setCategoryDrafts] = useState<Record<string, string>>({});
+
   const loadBudgetData = async () => {
     try {
-      setBudgetItems(await fetchBudgetItems());
+      const items = await fetchBudgetItems();
+      setBudgetItems(items);
+      setBudgetCategories(await fetchBudgetCategories(items));
     } catch (err) {
       console.error('Failed to load budget items:', err);
+    }
+  };
+
+  const sameCategoryName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+  const handleAddCategory = async () => {
+    const name = newCategoryName.trim();
+    if (!name) return;
+    if (budgetCategories.some((c) => sameCategoryName(c, name))) {
+      alert(`La categoría "${name}" ya existe.`);
+      return;
+    }
+    try {
+      const next = [...budgetCategories, name];
+      await saveBudgetCategories(next);
+      setBudgetCategories(next);
+      setNewCategoryName('');
+    } catch (err) {
+      console.error('Failed to add category:', err);
+      alert('No se pudo agregar la categoría. Inténtalo de nuevo.');
+    }
+  };
+
+  const handleRenameCategory = async (oldName: string) => {
+    const newName = (categoryDrafts[oldName] ?? oldName).trim();
+    if (!newName || newName === oldName) return;
+    if (budgetCategories.some((c) => c !== oldName && sameCategoryName(c, newName))) {
+      alert(`La categoría "${newName}" ya existe.`);
+      return;
+    }
+    try {
+      await renameBudgetCategory(oldName, newName, budgetCategories);
+      setCategoryDrafts(({ [oldName]: _done, ...rest }) => rest);
+      if (budgetCategoryFilter === oldName) setBudgetCategoryFilter(newName);
+      await loadBudgetData();
+    } catch (err) {
+      console.error('Failed to rename category:', err);
+      alert('No se pudo renombrar la categoría. Inténtalo de nuevo.');
+    }
+  };
+
+  const handleDeleteCategory = async (name: string) => {
+    const used = budgetItems.filter((i) => i.category === name).length;
+    if (used > 0) {
+      alert(`No se puede eliminar "${name}": ${used} gasto${used > 1 ? 's la usan' : ' la usa'}. Cámbialos a otra categoría primero.`);
+      return;
+    }
+    if (budgetCategories.length <= 1) {
+      alert('Debe quedar al menos una categoría.');
+      return;
+    }
+    if (!confirm(`¿Eliminar la categoría "${name}"?`)) return;
+    try {
+      const next = budgetCategories.filter((c) => c !== name);
+      await saveBudgetCategories(next);
+      setBudgetCategories(next);
+      if (budgetCategoryFilter === name) setBudgetCategoryFilter('all');
+    } catch (err) {
+      console.error('Failed to delete category:', err);
+      alert('No se pudo eliminar la categoría. Inténtalo de nuevo.');
     }
   };
 
@@ -478,7 +561,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       g.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (g.email && g.email.toLowerCase().includes(searchQuery.toLowerCase()));
 
-    const matchesStatus = statusFilter === 'all' || g.status === statusFilter;
+    // Covered companions never RSVP themselves (their own record stays
+    // "pending"); their partner's answer is theirs.
+    const effectiveStatus = coverageMap.get(g.id)?.status ?? g.status;
+    const matchesStatus = statusFilter === 'all' || effectiveStatus === statusFilter;
     const matchesGroup = groupFilter === 'all' || (g.groupCategory || 'General') === groupFilter;
     return matchesSearch && matchesStatus && matchesGroup;
   })
@@ -489,6 +575,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Budget Calculations
   const totalBudgetEstimated = budgetItems.reduce((acc, item) => acc + (Number(item.estimatedCost) || 0), 0);
   const totalBudgetActual = budgetItems.reduce((acc, item) => acc + (Number(item.actualCost) || 0), 0);
+  // Actual spend per category for the budget chart, biggest first. Built from
+  // the items themselves, so any category (including newly added ones) gets
+  // its own slice without listing it here.
+  const budgetByCategory = Object.entries(
+    budgetItems.reduce<Record<string, number>>((acc, item) => {
+      const category = item.category || 'Otros';
+      acc[category] = (acc[category] || 0) + (Number(item.actualCost) || 0);
+      return acc;
+    }, {})
+  )
+    .map(([name, value]) => ({ name, value }))
+    .filter((d) => d.value > 0)
+    .sort((a, b) => b.value - a.value);
   const totalBudgetPaid = budgetItems.reduce((acc, item) => acc + (Number(item.paidAmount) || 0), 0);
   const totalBudgetPending = Math.max(0, totalBudgetActual - totalBudgetPaid);
   const budgetPaidPercentage = totalBudgetActual > 0 ? Math.min(100, Math.round((totalBudgetPaid / totalBudgetActual) * 100)) : 0;
@@ -533,6 +632,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setBudgetItems(await saveBudgetItem(item));
     } catch (err) {
       console.error('Failed to save budget item:', err);
+      // Keep the form open so nothing typed is lost.
+      alert('No se pudo guardar el gasto. Revisa que tu sesión siga activa e inténtalo de nuevo.');
+      return;
     }
 
     setIsBudgetModalOpen(false);
@@ -545,6 +647,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setBudgetItems(await deleteBudgetItem(id));
     } catch (err) {
       console.error('Failed to delete budget item:', err);
+      alert('No se pudo eliminar el gasto. Revisa que tu sesión siga activa e inténtalo de nuevo.');
     }
   };
 
@@ -562,6 +665,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       );
     } catch (err) {
       console.error('Failed to update budget item:', err);
+      alert('No se pudo actualizar el gasto. Revisa que tu sesión siga activa e inténtalo de nuevo.');
     }
   };
 
@@ -1988,14 +2092,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                               <Pie
-                                data={[
-                                  { name: 'Lugar & Banquetes', value: budgetItems.filter(i=>i.category === 'Lugar & Banquetes').reduce((a,b)=>a+b.actualCost,0) },
-                                  { name: 'Fotografía & Video', value: budgetItems.filter(i=>i.category === 'Fotografía & Video').reduce((a,b)=>a+b.actualCost,0) },
-                                  { name: 'Música & DJ', value: budgetItems.filter(i=>i.category === 'Música & DJ').reduce((a,b)=>a+b.actualCost,0) },
-                                  { name: 'Vestuario & Belleza', value: budgetItems.filter(i=>i.category === 'Vestuario & Belleza').reduce((a,b)=>a+b.actualCost,0) },
-                                  { name: 'Decoración & Flores', value: budgetItems.filter(i=>i.category === 'Decoración & Flores').reduce((a,b)=>a+b.actualCost,0) },
-                                  { name: 'Otros', value: budgetItems.filter(i=>!['Lugar & Banquetes','Fotografía & Video','Música & DJ','Vestuario & Belleza','Decoración & Flores'].includes(i.category)).reduce((a,b)=>a+b.actualCost,0) },
-                                ].filter(d => d.value > 0)}
+                                data={budgetByCategory}
                                 cx="50%"
                                 cy="50%"
                                 innerRadius={50}
@@ -2003,24 +2100,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 paddingAngle={3}
                                 dataKey="value"
                               >
-                                {['#0F4C3A', '#B98A2E', '#2563EB', '#D97706', '#E11D48', '#7C3AED'].map((color, idx) => (
-                                  <Cell key={`cell-${idx}`} fill={color} stroke="#ffffff" strokeWidth={2} />
+                                {budgetByCategory.map((entry, idx) => (
+                                  <Cell
+                                    key={entry.name}
+                                    fill={BUDGET_CHART_COLORS[idx % BUDGET_CHART_COLORS.length]}
+                                    stroke="#ffffff"
+                                    strokeWidth={2}
+                                  />
                                 ))}
                               </Pie>
                               <Tooltip
                                 contentStyle={{
-                                  backgroundColor: '#0F4C3A',
+                                  backgroundColor: BUDGET_TOOLTIP_BG,
                                   borderColor: '#D4AF37',
                                   borderRadius: '12px',
                                   color: '#FAFAF7',
                                   fontSize: '11px',
                                 }}
+                                itemStyle={{ color: '#FAFAF7' }}
                                 formatter={(value) => [
                                   formatLempiras(Number(value ?? 0)),
                                   'Gasto Real',
                                 ]}
                                 />
-                              <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+                              <Legend
+                                verticalAlign="bottom"
+                                height={36}
+                                iconType="circle"
+                                wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }}
+                                // Names in dark text (the dot keeps the slice color): the
+                                // light slice colors would be hard to read on white.
+                                formatter={(value) => <span style={{ color: '#2A2A2A' }}>{value}</span>}
+                              />
                             </PieChart>
                           </ResponsiveContainer>
                         ) : (
@@ -2073,7 +2184,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <button
                           onClick={() => {
                             setEditingBudgetItem({
-                              category: 'Lugar & Banquetes',
+                              category: budgetCategories[0] || 'Otros',
                               description: '',
                               vendor: '',
                               estimatedCost: 0,
@@ -2103,13 +2214,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           className="px-3.5 py-2 bg-white border border-[#E5CFA3] focus:outline-none rounded-full text-xs text-[#0F4C3A] font-medium uppercase tracking-wider cursor-pointer"
                         >
                           <option value="all">Todas las Categorías</option>
-                          <option value="Lugar & Banquetes">Lugar & Banquetes</option>
-                          <option value="Fotografía & Video">Fotografía & Video</option>
-                          <option value="Música & DJ">Música & DJ</option>
-                          <option value="Vestuario & Belleza">Vestuario & Belleza</option>
-                          <option value="Decoración & Flores">Decoración & Flores</option>
-                          <option value="Invitaciones & Detalles">Invitaciones & Detalles</option>
-                          <option value="Otros">Otros</option>
+                          {budgetCategories.map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
                         </select>
 
                         <select
@@ -2121,12 +2228,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <option value="paid">Liquidados / Pagados</option>
                           <option value="pending">Pendientes de Pago</option>
                         </select>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCategoryDrafts({});
+                            setNewCategoryName('');
+                            setIsCategoryModalOpen(true);
+                          }}
+                          className="px-3.5 py-2 rounded-full bg-white hover:bg-[#F7F3EC] border border-[#E5CFA3] text-[#0F4C3A] text-xs font-medium uppercase tracking-wider flex items-center space-x-1.5 transition-all cursor-pointer"
+                        >
+                          <Edit className="w-3.5 h-3.5 text-[#B98A2E]" />
+                          <span>Categorías</span>
+                        </button>
                       </div>
 
                       <button
                         onClick={() => {
                           setEditingBudgetItem({
-                            category: 'Lugar & Banquetes',
+                            category: budgetCategories[0] || 'Otros',
                             description: '',
                             vendor: '',
                             estimatedCost: 0,
@@ -2806,6 +2926,95 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         )}
 
         {/* ADD / EDIT BUDGET ITEM MODAL */}
+        {/* Budget categories editor */}
+        {isCategoryModalOpen && (
+          <div className="fixed inset-0 z-50 bg-[#0B3F35]/40 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="w-full max-w-md bg-[#F7F3EC] border border-[#E5CFA3] rounded-[32px] p-6 text-[#2A2A2A] shadow-2xl relative space-y-4 font-sans max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain">
+              <div className="flex items-center justify-between">
+                <h3 className="font-serif text-2xl text-[#0F4C3A] font-medium italic">Categorías del Presupuesto</h3>
+                <button
+                  type="button"
+                  onClick={() => setIsCategoryModalOpen(false)}
+                  className="p-2 rounded-full hover:bg-white text-[#2A2A2A]/60 hover:text-[#0F4C3A] cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-[11px] text-[#2A2A2A]/70 font-light">
+                Renombrar una categoría también actualiza los gastos que la usan. Solo puedes eliminar categorías sin gastos.
+              </p>
+
+              <div className="space-y-2">
+                {budgetCategories.map((category) => {
+                  const used = budgetItems.filter((i) => i.category === category).length;
+                  const draft = categoryDrafts[category] ?? category;
+                  const changed = draft.trim() !== category && draft.trim() !== '';
+                  return (
+                    <div key={category} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={draft}
+                        maxLength={60}
+                        onChange={(e) => setCategoryDrafts({ ...categoryDrafts, [category]: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleRenameCategory(category);
+                        }}
+                        className="flex-1 min-w-0 px-3 py-2 bg-white border border-[#E5CFA3] rounded-xl text-xs text-[#0F4C3A] font-medium focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
+                      />
+                      <span className="text-[10px] text-[#2A2A2A]/50 w-14 text-right shrink-0">
+                        {used} gasto{used === 1 ? '' : 's'}
+                      </span>
+                      {changed ? (
+                        <button
+                          type="button"
+                          onClick={() => handleRenameCategory(category)}
+                          className="p-2 rounded-full bg-[#0F4C3A] hover:bg-[#0B3F35] text-white cursor-pointer shrink-0"
+                          title="Guardar nombre"
+                        >
+                          <Save className="w-3.5 h-3.5" />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCategory(category)}
+                          disabled={used > 0}
+                          className="p-2 rounded-full bg-white border border-[#E5CFA3] hover:bg-rose-50 text-rose-600 cursor-pointer shrink-0 disabled:opacity-30 disabled:cursor-not-allowed"
+                          title={used > 0 ? 'En uso: cambia sus gastos a otra categoría primero' : 'Eliminar categoría'}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center gap-2 pt-3 border-t border-[#E5CFA3]">
+                <input
+                  type="text"
+                  value={newCategoryName}
+                  maxLength={60}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleAddCategory();
+                  }}
+                  placeholder="Nueva categoría, ej. Transporte"
+                  className="flex-1 min-w-0 px-3 py-2 bg-white border border-[#E5CFA3] rounded-xl text-xs text-[#0F4C3A] font-medium focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddCategory}
+                  disabled={!newCategoryName.trim()}
+                  className="px-3.5 py-2 rounded-full bg-[#0F4C3A] hover:bg-[#0B3F35] text-white text-[11px] font-medium uppercase tracking-wider cursor-pointer shrink-0 flex items-center space-x-1 disabled:opacity-50"
+                >
+                  <Plus className="w-3.5 h-3.5 text-[#D9B872]" />
+                  <span>Agregar</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {isBudgetModalOpen && editingBudgetItem && (
           <div className="fixed inset-0 z-50 bg-[#0B3F35]/40 backdrop-blur-md flex items-center justify-center p-4">
             <div className="w-full max-w-md bg-[#F7F3EC] border border-[#E5CFA3] rounded-[32px] p-6 text-[#2A2A2A] shadow-2xl relative space-y-4 font-sans max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain text-left">
@@ -2830,17 +3039,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div>
                   <label className="block text-[10px] uppercase tracking-widest font-semibold text-[#B98A2E] mb-1">Categoría</label>
                   <select
-                    value={editingBudgetItem.category || 'Lugar & Banquetes'}
+                    value={editingBudgetItem.category || budgetCategories[0] || 'Otros'}
                     onChange={(e) => setEditingBudgetItem({ ...editingBudgetItem, category: e.target.value as any })}
                     className="w-full px-3.5 py-2.5 bg-white border border-[#E5CFA3] rounded-xl text-[#0F4C3A] font-medium focus:outline-none cursor-pointer"
                   >
-                    <option value="Lugar & Banquetes">Lugar & Banquetes</option>
-                    <option value="Fotografía & Video">Fotografía & Video</option>
-                    <option value="Música & DJ">Música & DJ</option>
-                    <option value="Vestuario & Belleza">Vestuario & Belleza</option>
-                    <option value="Decoración & Flores">Decoración & Flores</option>
-                    <option value="Invitaciones & Detalles">Invitaciones & Detalles</option>
-                    <option value="Otros">Otros</option>
+                    {budgetCategories.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                    {editingBudgetItem.category && !budgetCategories.includes(editingBudgetItem.category) && (
+                      <option value={editingBudgetItem.category}>{editingBudgetItem.category}</option>
+                    )}
                   </select>
                 </div>
 

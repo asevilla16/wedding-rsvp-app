@@ -108,5 +108,10 @@ service cloud.firestore {
     match /budget/{itemId} {
       allow read, write: if isAdmin();
     }
+
+    // Budget settings, e.g. the list of expense categories: private to admins.
+    match /budgetSettings/{document} {
+      allow read, write: if isAdmin();
+    }
   }
 }

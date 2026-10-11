@@ -38,7 +38,8 @@ export interface GuestEntry {
 
 export interface BudgetItem {
   id: string;
-  category: 'Lugar & Banquetes' | 'Fotografía & Video' | 'Música & DJ' | 'Vestuario & Belleza' | 'Decoración & Flores' | 'Invitaciones & Detalles' | 'Otros';
+  // One of the categories managed in the panel (Firestore budgetSettings/categories).
+  category: string;
   description: string;
   vendor?: string;
   estimatedCost: number;

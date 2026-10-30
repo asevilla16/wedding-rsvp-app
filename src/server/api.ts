@@ -190,6 +190,8 @@ export function createApiApp(): Express {
         partySizeAllowed: guest.partySizeAllowed || 1,
         status: guest.status || 'pending',
         tableNumber: guest.tableNumber || '',
+        groupCategory: guest.groupCategory,
+        gender: guest.gender ?? null,
       };
       currentStore.guests.unshift(newGuest);
     }

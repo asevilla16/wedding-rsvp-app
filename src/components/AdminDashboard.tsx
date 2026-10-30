@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   ShieldCheck,
-  Users,
   UserCheck,
   UserX,
   Clock,
@@ -14,7 +13,6 @@ import {
   Lock,
   CheckCircle2,
   AlertTriangle,
-  Settings,
   FileSpreadsheet,
   X,
   Save,
@@ -22,7 +20,6 @@ import {
   Copy,
   Check,
   QrCode,
-  LogOut,
   Eye,
   EyeOff,
   Camera,
@@ -33,9 +30,6 @@ import {
   Heart,
   MessageSquare,
   Menu,
-  ChevronRight,
-  ExternalLink,
-  LayoutDashboard,
   PieChart as PieChartIcon,
   DollarSign,
   Wallet,
@@ -95,6 +89,8 @@ import { BUDGET_TOOLTIP_BG, BUDGET_CHART_COLORS } from '../admin/helpers/constan
 import formatLempiras from '../admin/helpers/formatLempiras';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import sameCategoryName from '../admin/helpers/sameCategoryName';
+import { AdminTabId, getAdminTabTitle } from '../admin/helpers/adminTabs';
+import { AdminSidebar, AdminMobileMenu } from '../admin/components/AdminSidebar';
 
 interface AdminDashboardProps {
   wedding: WeddingDetails;
@@ -136,7 +132,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [newAdminPin, setNewAdminPin] = useState('');
   const [pinChangeError, setPinChangeError] = useState('');
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'guests' | 'budget' | 'photos' | 'messages' | 'catering' | 'dj' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<AdminTabId>('overview');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const [guests, setGuests] = useState<GuestEntry[]>([]);
@@ -144,6 +140,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'attending' | 'declined' | 'pending'>('all');
   const [groupFilter, setGroupFilter] = useState<string>('all');
+  const [genderFilter, setGenderFilter] = useState<'all' | 'female' | 'male' | 'unset'>('all');
   const [copiedGuestId, setCopiedGuestId] = useState<string | null>(null);
   const [selectedQrGuest, setSelectedQrGuest] = useState<GuestEntry | null>(null);
 
@@ -550,7 +547,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const effectiveStatus = coverageMap.get(g.id)?.status ?? g.status;
     const matchesStatus = statusFilter === 'all' || effectiveStatus === statusFilter;
     const matchesGroup = groupFilter === 'all' || (g.groupCategory || 'General') === groupFilter;
-    return matchesSearch && matchesStatus && matchesGroup;
+    const matchesGender = genderFilter === 'all' || (g.gender || 'unset') === genderFilter;
+    return matchesSearch && matchesStatus && matchesGroup && matchesGender;
   })
     // Alphabetical by name; Spanish collation so accents sort naturally
     // ("Tía" next to "Tia") and case doesn't matter.
@@ -850,6 +848,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       'ID Invitado',
       'Código Invitación',
       'Nombre Principal',
+      'Sexo',
       'Correo',
       'Teléfono',
       'Cupo Permitido',
@@ -865,7 +864,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       'Mensaje a los Novios',
     ];
 
-    const rows = guests.map((g) => {
+    // Exports exactly the rows shown in the table (search and filters applied).
+    const rows = filteredGuests.map((g) => {
       const pMeal = wedding.meals.find((m) => m.id === g.primaryMealOptionId)?.name || 'No seleccionado';
       const poMeal = g.plusOne?.mealOptionId
         ? wedding.meals.find((m) => m.id === g.plusOne?.mealOptionId)?.name
@@ -875,6 +875,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         `"${g.id}"`,
         `"${g.code}"`,
         `"${g.primaryName}"`,
+        `"${g.gender === 'female' ? 'Mujer' : g.gender === 'male' ? 'Hombre' : ''}"`,
         `"${g.email || ''}"`,
         `"${g.phone || ''}"`,
         g.partySizeAllowed,
@@ -1076,253 +1077,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         ) : (
           <>
             {/* DESKTOP SIDEBAR NAVIGATION */}
-            <aside className="hidden md:flex flex-col w-64 bg-[#072B21] border-r border-[#154D3D] text-[#FAFAF7] shrink-0 justify-between shadow-xl z-20">
-              {/* Sidebar Header */}
-              <div className="p-5 border-b border-[#154D3D] space-y-2">
-                <div className="flex items-center space-x-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#105642] to-[#0A382B] border border-[#D4AF37]/50 flex items-center justify-center text-[#D4AF37] shadow-md">
-                    <ShieldCheck className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="font-serif text-base text-[#D4AF37] font-semibold italic tracking-wide">Panel de Novios</h3>
-                    <p className="text-[10px] text-emerald-200/80 uppercase tracking-widest font-medium">
-                      {wedding.partner1Name || 'Novio'} & {wedding.partner2Name || 'Novia'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Sidebar Menu Items */}
-              <nav className="p-3 space-y-1 overflow-y-auto flex-1">
-                <div className="px-3 py-1.5 text-[9px] uppercase tracking-widest text-[#D4AF37]/80 font-bold">Menú Principal</div>
-
-                <button
-                  onClick={() => setActiveTab('overview')}
-                  className={`w-full px-3.5 py-3 rounded-xl text-xs font-medium flex items-center justify-between transition-all cursor-pointer ${
-                    activeTab === 'overview'
-                      ? 'bg-[#0F4C3A] text-white border border-[#D4AF37]/40 shadow-sm font-semibold'
-                      : 'text-emerald-100/70 hover:bg-[#0A382B] hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2.5">
-                    <LayoutDashboard className="w-4 h-4 text-[#D4AF37]" />
-                    <span>Resumen RSVP</span>
-                  </div>
-                  <ChevronRight className={`w-3.5 h-3.5 transition-transform ${activeTab === 'overview' ? 'opacity-100' : 'opacity-30'}`} />
-                </button>
-
-                <button
-                  onClick={() => setActiveTab('guests')}
-                  className={`w-full px-3.5 py-3 rounded-xl text-xs font-medium flex items-center justify-between transition-all cursor-pointer ${
-                    activeTab === 'guests'
-                      ? 'bg-[#0F4C3A] text-white border border-[#D4AF37]/40 shadow-sm font-semibold'
-                      : 'text-emerald-100/70 hover:bg-[#0A382B] hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2.5">
-                    <Users className="w-4 h-4 text-[#D4AF37]" />
-                    <span>Lista de Invitados</span>
-                  </div>
-                  <span className="px-2 py-0.5 rounded-full bg-[#154D3D] text-[10px] text-[#D4AF37] font-bold">
-                    {guests.length}
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => setActiveTab('budget')}
-                  className={`w-full px-3.5 py-3 rounded-xl text-xs font-medium flex items-center justify-between transition-all cursor-pointer ${
-                    activeTab === 'budget'
-                      ? 'bg-[#0F4C3A] text-white border border-[#D4AF37]/40 shadow-sm font-semibold'
-                      : 'text-emerald-100/70 hover:bg-[#0A382B] hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2.5">
-                    <Wallet className="w-4 h-4 text-[#D4AF37]" />
-                    <span>Presupuesto y Gastos</span>
-                  </div>
-                  <span className="px-2 py-0.5 rounded-full bg-[#154D3D] text-[10px] text-[#D4AF37] font-bold">
-                    {formatLempiras(totalBudgetActual, 0)}
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => setActiveTab('photos')}
-                  className={`w-full px-3.5 py-3 rounded-xl text-xs font-medium flex items-center justify-between transition-all cursor-pointer ${
-                    activeTab === 'photos'
-                      ? 'bg-[#0F4C3A] text-white border border-[#D4AF37]/40 shadow-sm font-semibold'
-                      : 'text-emerald-100/70 hover:bg-[#0A382B] hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2.5">
-                    <Camera className="w-4 h-4 text-[#D4AF37]" />
-                    <span>Galería de Fotos</span>
-                  </div>
-                  <span className="px-2 py-0.5 rounded-full bg-[#154D3D] text-[10px] text-[#D4AF37] font-bold">
-                    {wedding.galleryPhotos?.length || 0}
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => setActiveTab('messages')}
-                  className={`w-full px-3.5 py-3 rounded-xl text-xs font-medium flex items-center justify-between transition-all cursor-pointer ${
-                    activeTab === 'messages'
-                      ? 'bg-[#0F4C3A] text-white border border-[#D4AF37]/40 shadow-sm font-semibold'
-                      : 'text-emerald-100/70 hover:bg-[#0A382B] hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2.5">
-                    <MessageSquareCode className="w-4 h-4 text-[#D4AF37]" />
-                    <span>Muro de Mensajes</span>
-                  </div>
-                  <span className="px-2 py-0.5 rounded-full bg-[#154D3D] text-[10px] text-[#D4AF37] font-bold">
-                    {localWishes.length}
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => setActiveTab('catering')}
-                  className={`w-full px-3.5 py-3 rounded-xl text-xs font-medium flex items-center justify-between transition-all cursor-pointer ${
-                    activeTab === 'catering'
-                      ? 'bg-[#0F4C3A] text-white border border-[#D4AF37]/40 shadow-sm font-semibold'
-                      : 'text-emerald-100/70 hover:bg-[#0A382B] hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2.5">
-                    <Utensils className="w-4 h-4 text-[#D4AF37]" />
-                    <span>Reporte Menú</span>
-                  </div>
-                  <ChevronRight className={`w-3.5 h-3.5 transition-transform ${activeTab === 'catering' ? 'opacity-100' : 'opacity-30'}`} />
-                </button>
-
-                <button
-                  onClick={() => setActiveTab('dj')}
-                  className={`w-full px-3.5 py-3 rounded-xl text-xs font-medium flex items-center justify-between transition-all cursor-pointer ${
-                    activeTab === 'dj'
-                      ? 'bg-[#0F4C3A] text-white border border-[#D4AF37]/40 shadow-sm font-semibold'
-                      : 'text-emerald-100/70 hover:bg-[#0A382B] hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2.5">
-                    <Music className="w-4 h-4 text-[#D4AF37]" />
-                    <span>Música para DJ</span>
-                  </div>
-                  <ChevronRight className={`w-3.5 h-3.5 transition-transform ${activeTab === 'dj' ? 'opacity-100' : 'opacity-30'}`} />
-                </button>
-
-                <button
-                  onClick={() => setActiveTab('settings')}
-                  className={`w-full px-3.5 py-3 rounded-xl text-xs font-medium flex items-center justify-between transition-all cursor-pointer ${
-                    activeTab === 'settings'
-                      ? 'bg-[#0F4C3A] text-white border border-[#D4AF37]/40 shadow-sm font-semibold'
-                      : 'text-emerald-100/70 hover:bg-[#0A382B] hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2.5">
-                    <Settings className="w-4 h-4 text-[#D4AF37]" />
-                    <span>Configuración</span>
-                  </div>
-                  <ChevronRight className={`w-3.5 h-3.5 transition-transform ${activeTab === 'settings' ? 'opacity-100' : 'opacity-30'}`} />
-                </button>
-              </nav>
-
-              {/* Sidebar Footer */}
-              <div className="p-4 border-t border-[#154D3D] space-y-2 bg-[#052018]">
-                {currentUser && (
-                  <div className="flex items-center space-x-2.5 px-2 py-1 text-xs text-emerald-100">
-                    {currentUser.photoURL ? (
-                      <img src={currentUser.photoURL} alt="" className="w-6 h-6 rounded-full border border-[#D4AF37]" />
-                    ) : (
-                      <div className="w-6 h-6 rounded-full bg-[#0F4C3A] flex items-center justify-center text-[10px] font-bold text-[#D4AF37]">
-                        {currentUser.email?.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                    <span className="truncate text-[11px] font-medium text-emerald-200">{currentUser.email}</span>
-                  </div>
-                )}
-
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    onClick={onClose}
-                    className="flex-1 py-2 px-3 rounded-xl bg-[#0F4C3A]/80 hover:bg-[#0F4C3A] text-[#FAFAF7] text-[11px] font-semibold transition-all cursor-pointer flex items-center justify-center space-x-1 border border-[#D4AF37]/30"
-                    title="Ver invitación pública"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5 text-[#D4AF37]" />
-                    <span>Ver Web</span>
-                  </button>
-
-                  <button
-                    onClick={handleLogout}
-                    className="p-2 rounded-xl bg-rose-950/60 hover:bg-rose-900/80 border border-rose-800/40 text-rose-300 text-xs transition-all cursor-pointer"
-                    title="Cerrar sesión"
-                  >
-                    <LogOut className="w-4 h-4 text-rose-400" />
-                  </button>
-                </div>
-              </div>
-            </aside>
+            <AdminSidebar
+              activeTab={activeTab}
+              onSelect={setActiveTab}
+              badges={{
+                guests: guests.length,
+                budget: formatLempiras(totalBudgetActual, 0),
+                photos: wedding.galleryPhotos?.length || 0,
+                messages: localWishes.length,
+              }}
+              partnerNames={`${wedding.partner1Name || 'Novio'} & ${wedding.partner2Name || 'Novia'}`}
+              currentUser={currentUser}
+              onViewSite={onClose}
+              onLogout={handleLogout}
+            />
 
             {/* MOBILE SIDEBAR DRAWER OVERLAY */}
-            {mobileSidebarOpen && (
-              <div className="md:hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex">
-                <div className="w-72 bg-[#072B21] h-full flex flex-col text-[#FAFAF7] p-4 space-y-4 shadow-2xl">
-                  <div className="flex items-center justify-between pb-3 border-b border-[#154D3D]">
-                    <div className="flex items-center space-x-2">
-                      <ShieldCheck className="w-5 h-5 text-[#D4AF37]" />
-                      <span className="font-serif text-base text-[#D4AF37] italic font-semibold">Panel de Novios</span>
-                    </div>
-                    <button
-                      onClick={() => setMobileSidebarOpen(false)}
-                      className="p-1.5 rounded-full hover:bg-white/10 text-emerald-200 cursor-pointer"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
-
-                  <nav className="space-y-1 overflow-y-auto flex-1">
-                    {[
-                      { id: 'overview', label: 'Resumen RSVP', icon: LayoutDashboard },
-                      { id: 'guests', label: `Invitados (${guests.length})`, icon: Users },
-                      { id: 'budget', label: 'Presupuesto & Gastos', icon: Wallet },
-                      { id: 'photos', label: `Galería (${wedding.galleryPhotos?.length || 0})`, icon: Camera },
-                      { id: 'messages', label: `Mensajes (${localWishes.length})`, icon: MessageSquareCode },
-                      { id: 'catering', label: 'Reporte Menú', icon: Utensils },
-                      { id: 'dj', label: 'Música DJ', icon: Music },
-                      { id: 'settings', label: 'Configuración', icon: Settings },
-                    ].map((tab) => {
-                      const IconComp = tab.icon;
-                      return (
-                        <button
-                          key={tab.id}
-                          onClick={() => {
-                            setActiveTab(tab.id as any);
-                            setMobileSidebarOpen(false);
-                          }}
-                          className={`w-full px-3.5 py-3 rounded-xl text-xs font-medium flex items-center space-x-3 transition-all cursor-pointer ${
-                            activeTab === tab.id
-                              ? 'bg-[#0F4C3A] text-white border border-[#D4AF37]/40 font-semibold'
-                              : 'text-emerald-100/70 hover:bg-[#0A382B]'
-                          }`}
-                        >
-                          <IconComp className="w-4 h-4 text-[#D4AF37]" />
-                          <span>{tab.label}</span>
-                        </button>
-                      );
-                    })}
-                  </nav>
-
-                  <div className="pt-3 border-t border-[#154D3D] space-y-2">
-                    <button
-                      onClick={onClose}
-                      className="w-full py-2.5 px-3 rounded-xl bg-[#0F4C3A] text-white text-xs font-semibold flex items-center justify-center space-x-2 cursor-pointer"
-                    >
-                      <ExternalLink className="w-4 h-4 text-[#D4AF37]" />
-                      <span>Ir a la Invitación Pública</span>
-                    </button>
-                  </div>
-                </div>
-                <div className="flex-1" onClick={() => setMobileSidebarOpen(false)} />
-              </div>
-            )}
+            <AdminMobileMenu
+              open={mobileSidebarOpen}
+              onClose={() => setMobileSidebarOpen(false)}
+              activeTab={activeTab}
+              onSelect={setActiveTab}
+              counts={{
+                guests: guests.length,
+                photos: wedding.galleryPhotos?.length || 0,
+                messages: localWishes.length,
+              }}
+              onViewSite={onClose}
+            />
 
             {/* RIGHT MAIN WORKSPACE */}
             <main className="flex-1 min-w-0 flex flex-col bg-[#F7F3EC] overflow-hidden">
@@ -1338,14 +1120,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                   <div>
                     <h3 className="font-serif text-lg text-[#0F4C3A] font-semibold italic capitalize">
-                      {activeTab === 'overview' && 'Resumen & Estadísticas de RSVPs'}
-                      {activeTab === 'guests' && 'Lista de Invitados'}
-                      {activeTab === 'budget' && 'Presupuesto y Control de Gastos'}
-                      {activeTab === 'photos' && 'Galería de Fotos'}
-                      {activeTab === 'messages' && 'Muro de Mensajes'}
-                      {activeTab === 'catering' && 'Reporte de Menú & Alergias'}
-                      {activeTab === 'dj' && 'Canciones Recomendadas para DJ'}
-                      {activeTab === 'settings' && 'Configuración del Evento'}
+                      {getAdminTabTitle(activeTab)}
                     </h3>
                     <p className="text-[11px] text-[#B98A2E] font-medium hidden sm:block">
                       {wedding.coupleNames} • Panel de Administración
@@ -1683,7 +1458,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="space-y-4">
                   {/* Action Bar */}
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-                    {/* Mobile: search on its own row, the two filters side by side below it.
+                    {/* Mobile: search on its own row, the filters side by side below it.
                         sm and up: everything on one row. */}
                     <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
                       <div className="relative w-full sm:w-64">
@@ -1718,6 +1493,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         {groupOptions.map((group) => (
                           <option key={group} value={group}>{group}</option>
                         ))}
+                      </select>
+
+                      <select
+                        value={genderFilter}
+                        onChange={(e) => setGenderFilter(e.target.value as any)}
+                        className="flex-1 min-w-0 sm:flex-none px-3 py-2 bg-white border border-[#E5CFA3] focus:outline-none rounded-full text-xs text-[#0F4C3A] font-medium uppercase tracking-wider font-sans cursor-pointer truncate"
+                      >
+                        <option value="all">Mujeres y Hombres</option>
+                        <option value="female">Mujeres</option>
+                        <option value="male">Hombres</option>
+                        <option value="unset">Sin especificar</option>
                       </select>
                       </div>
                     </div>
@@ -1831,6 +1617,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#E5CFA3]/60">
+                        {filteredGuests.length === 0 && (
+                          <tr>
+                            <td colSpan={10} className="p-6 text-center text-[#2A2A2A]/50 font-sans">
+                              Ningún invitado coincide con la búsqueda o los filtros.
+                              {genderFilter !== 'all' && genderFilter !== 'unset' && (
+                                <span className="block mt-1 text-[11px]">
+                                  Asigna el sexo de cada invitado desde "Editar" para que aparezca aquí.
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        )}
                         {filteredGuests.map((g, idx) => {
                           const hasDietary = g.primaryDietaryRestrictions || g.plusOne?.dietaryRestrictions;
                           const coveringGuest = coverageMap.get(g.id);
@@ -1838,7 +1636,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <tr key={g.id} className="hover:bg-[#F7F3EC]/50 transition-colors">
                               <td className="p-3.5 w-10 text-right font-mono text-[11px] text-[#2A2A2A]/50 tabular-nums">{idx + 1}</td>
                               <td className="p-3.5 font-medium text-[#0F4C3A] font-serif italic text-sm">
-                                <div>{g.primaryName}</div>
+                                <div className="flex items-center gap-1.5">
+                                  <span>{g.primaryName}</span>
+                                  {g.gender && (
+                                    <span className="px-1.5 py-0.5 rounded-full bg-[#E5CFA3]/30 text-[#0F4C3A] text-[9px] font-semibold uppercase tracking-wider not-italic font-sans">
+                                      {g.gender === 'female' ? 'M' : 'H'}
+                                    </span>
+                                  )}
+                                </div>
                                 {g.email && <div className="text-[10px] text-[#2A2A2A]/60 font-light font-sans">{g.email}</div>}
                                 {coveringGuest && (
                                   <span className="inline-flex items-center space-x-1 mt-1 px-2 py-0.5 rounded-full bg-[#0F4C3A]/10 border border-[#0F4C3A]/20 text-[#0F4C3A] text-[9px] font-semibold uppercase tracking-wider not-italic font-sans">
@@ -3152,15 +2957,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </h3>
 
               <form onSubmit={handleSaveGuest} className="space-y-4 text-xs">
-                <div>
-                  <label className="block text-[10px] uppercase tracking-widest font-medium text-[#B98A2E] mb-1">Nombre del Invitado</label>
-                  <input
-                    type="text"
-                    value={editingGuest.primaryName || ''}
-                    onChange={(e) => setEditingGuest({ ...editingGuest, primaryName: e.target.value })}
-                    className="w-full px-3.5 py-2 bg-white border border-[#E5CFA3] rounded-xl text-[#0F4C3A] font-medium focus:outline-none"
-                    required
-                  />
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="col-span-2">
+                    <label className="block text-[10px] uppercase tracking-widest font-medium text-[#B98A2E] mb-1">Nombre del Invitado</label>
+                    <input
+                      type="text"
+                      value={editingGuest.primaryName || ''}
+                      onChange={(e) => setEditingGuest({ ...editingGuest, primaryName: e.target.value })}
+                      className="w-full px-3.5 py-2 bg-white border border-[#E5CFA3] rounded-xl text-[#0F4C3A] font-medium focus:outline-none"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-widest font-medium text-[#B98A2E] mb-1">Sexo</label>
+                    <select
+                      value={editingGuest.gender || ''}
+                      onChange={(e) =>
+                        setEditingGuest({ ...editingGuest, gender: (e.target.value || null) as GuestEntry['gender'] })
+                      }
+                      className="w-full px-3.5 py-2 bg-white border border-[#E5CFA3] rounded-xl text-[#0F4C3A] font-medium focus:outline-none cursor-pointer"
+                    >
+                      <option value="">—</option>
+                      <option value="female">Mujer</option>
+                      <option value="male">Hombre</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">

@@ -30,6 +30,8 @@ export interface GuestEntry {
   updatedAt?: string;
   tableNumber?: string;
   groupCategory?: string;
+  // Set by the admin panel. Cleared with null so merged writes remove it.
+  gender?: 'female' | 'male' | null;
   // Name of the guest whose invitation covers this one (they're that guest's
   // linked companion). Written by the admin panel so the covered guest can see
   // it from their own record, without being able to read anyone else's.

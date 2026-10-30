@@ -296,6 +296,7 @@ export async function saveGuest(pin: string, guest: Partial<GuestEntry>, note?: 
       status: guest.status || 'pending',
       tableNumber: guest.tableNumber || '',
       groupCategory: guest.groupCategory,
+      gender: guest.gender ?? null,
       primaryMealOptionId: guest.primaryMealOptionId,
       primaryDietaryRestrictions: guest.primaryDietaryRestrictions,
       plusOne: guest.plusOne,
